@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Experiment / game node.
 
-Sub:  /joy            (sensor_msgs/Joy)  participant choice
+Sub:  /button_press   (std_msgs/Int32)   participant choice (block id)
       /motion_status  (String)           trial timing
 Pub:  /trial_start    (TrialInfo)
       /choice         (ChoiceEvent)
