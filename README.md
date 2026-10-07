@@ -17,7 +17,7 @@ No vision node: blocks don't move, so their coordinates live in `config/experime
 |---|---|
 | `scripts/motion_node.py` | Motion/planning node |
 | `scripts/experiment_node.py` | Experiment/game node |
-| `src/hri_legible_motion/legibility.py` | Planner + legibility optimizer (no ROS) |
+| `src/hri_legible_motion/legibility.py` | Planner + legibility optimizer |
 | `msg/TrialInfo.msg` | Experiment → motion: trial id, target, condition, bend |
 | `msg/ChoiceEvent.msg` | Participant choice change |
 | `config/experiment.yaml` | Block coordinates, robot, trial settings |

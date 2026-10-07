@@ -1,4 +1,4 @@
-"""Planner + legibility optimizer (pure numpy, no ROS).
+"""Planner + legibility optimizer.
 
 baseline_path()     straight reach start -> target
 legible_path()      bent / optimized path
