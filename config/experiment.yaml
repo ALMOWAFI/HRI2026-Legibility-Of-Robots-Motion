@@ -1,0 +1,8 @@
+# Fixed setup, positions in UR5e base_link (m). TODO: measure on the table.
+frame_id: base_link
+
+blocks: []        # - {id: 0, position: [x, y, z]}
+
+motion: {}        # planning_group, ee_link, home_joints, start_position, hover_height, ...
+
+experiment: {}    # participant_id, output_dir, joystick mapping, conditions, targets, repeats

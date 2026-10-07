@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>hri_legible_motion</name>
+  <version>0.1.0</version>
+  <description>Legible robot motion HRI experiment on a UR5e: motion/planning node (legibility optimizer) + experiment/game node. Block positions are fixed in config.</description>
+  <maintainer email="aelmowafi@constructor.university">Ali Elmowafi</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+  <build_depend>message_generation</build_depend>
+  <exec_depend>message_runtime</exec_depend>
+
+  <depend>rospy</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>trajectory_msgs</depend>
+
+  <exec_depend>moveit_commander</exec_depend>
+  <exec_depend>joy</exec_depend>
+  <exec_depend>ur_robot_driver</exec_depend>
+  <exec_depend>ur5e_moveit_config</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+</package>
