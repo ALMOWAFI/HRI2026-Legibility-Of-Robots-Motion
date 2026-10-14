@@ -2,7 +2,7 @@
 """Plan a test reach from the start pose to the hover point above one cube, show it in
 RViz (MotionPlanning > Planned Path) and optionally run it on the UR5e.
 
-usage: test_motion.py <B1..B4 | orange|red|yellow|green> [--execute]
+usage: test_motion.py <B1..B4 | orange|red|yellow|green | all> [--execute]
 
 Predictable (straight) motion only for now. Tool orientation is kept as at the start pose.
 Every trajectory passes hri_legible_motion.safety (workspace, speed, joint jumps) before it
@@ -45,8 +45,9 @@ def main():
     with open(CONFIG) as f:
         cfg = yaml.safe_load(f)
     blocks = {k: b for b in cfg["blocks"] for k in (b["name"], b["color"])}
-    if len(args) != 1 or args[0] not in blocks:
+    if len(args) != 1 or (args[0] not in blocks and args[0] != "all"):
         sys.exit(__doc__)
+    targets = cfg["blocks"] if args[0] == "all" else [blocks[args[0]]]
     execute = "--execute" in sys.argv
     if execute and not sys.stdin.isatty():
         sys.exit("--execute needs a person at an interactive terminal.")
@@ -54,12 +55,16 @@ def main():
     robot = Robot(cfg)
     m = cfg["motion"]
     start = m["start_joints"]
+    orientation = robot.fk(start)[1]
 
-    traj = plan_reach(robot, cfg, blocks[args[0]])
-    back = robot.plan_return(end_joints(traj), robot.fk(start)[1])  # checked now, replanned after the reach
-    print("Return to start: %.1f s" % back.points[-1].time_from_start.to_sec())
+    reaches = []
+    for b in targets:
+        traj = plan_reach(robot, cfg, b)
+        back = robot.plan_return(end_joints(traj), orientation)  # checked now, replanned after the reach
+        print("Return to start: %.1f s\n" % back.points[-1].time_from_start.to_sec())
+        reaches.append((b, traj))
     robot.show(start, [traj, back])
-    print("Shown in RViz (MotionPlanning > Planned Path).")
+    print("Shown in RViz (MotionPlanning > Planned Path; last one if several).")
     if not execute:
         return
 
@@ -71,15 +76,16 @@ def main():
         if not require_operator("Robot is %.0f deg from the start pose. Move there in 8 s?" % off):
             return
         robot.move_joints(start, 8.0)
-    robot.check_at(start, "the start pose; the planned reach starts there")
-    if not require_operator("Run the reach to %s (%.1f s)?" % (args[0], m["duration"])):
-        return
-    robot.execute(traj)
-    print("Reach done.")
-    rospy.sleep(1.0)
-    robot.execute(robot.plan_return(robot.current_joints(), robot.fk(start)[1]))
-    robot.move_joints(start, 2.0)  # residual correction, a fraction of a degree
-    print("Back at start.")
+    for b, traj in reaches:
+        robot.check_at(start, "the start pose; the planned reach starts there")
+        if not require_operator("Run the predictable reach to %s (%.1f s)?" % (b["color"], m["duration"])):
+            return
+        robot.execute(traj)
+        print("Reach to %s done." % b["color"])
+        rospy.sleep(1.0)
+        robot.execute(robot.plan_return(robot.current_joints(), orientation))
+        robot.move_joints(start, 2.0)  # residual correction, a fraction of a degree
+        print("Back at start.\n")
 
 
 if __name__ == "__main__":
