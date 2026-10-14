@@ -22,27 +22,25 @@ from the Sawyer/joystick setup described in the form to the lab setup:
 
 ## 1. Physical setup
 
-### 1.1 Cube positions (already recorded, `tools/goto_pose.py`)
+### 1.1 Cube positions (defined relative to the robot, placed by the robot)
 
-TCP positions in `arm_base_link` (m), measured 2026-10-07:
+The table has to move between lab sessions, so cube positions are fixed in the
+robot frame (`arm_base_link`), not on the table. Before every session,
+`tools/place_blocks.py --execute` points the tool at each spot and the cubes are
+placed under it (see README, "Before every lab session").
 
-| Cube | x | y | z | Role |
+| Cube | Colour | x | y | Role |
 |---|---|---|---|---|
-| B1 | 0.919 | 0.153 | 0.011 | edge |
-| B2 | 0.930 | −0.031 | 0.005 | middle |
-| B3 | 0.907 | −0.209 | 0.003 | middle |
-| B4 | 0.876 | −0.371 | 0.046 | edge |
+| B1 | orange | 0.80 | 0.16 | edge |
+| B2 | red | 0.80 | −0.02 | middle |
+| B3 | yellow | 0.80 | −0.20 | middle |
+| B4 | green | 0.80 | −0.38 | edge |
 
-- Spacing ≈ 18 cm, row roughly along the robot's y axis at x ≈ 0.9 m.
-- **Check:** x ≈ 0.9 m is close to the UR5e's 0.85 m reach. The bent paths
-  pass through less extended poses, but the end poses (especially B4, which
-  needs a different wrist_1 angle than the others) should be checked for
-  closeness to singularity. If the IK struggles, move the row to x ≈ 0.65–0.75 m
-  and record the poses again.
-- Mark the cube footprints and the chair position with tape. Photograph the
-  setup for the paper.
-- Fill `config/experiment.yaml → blocks` with these values (and fix
-  `frame_id`: the robot uses the `arm_` prefix, so it is `arm_base_link`, not `base_link`).
+- 18 cm spacing, row centred on y = −0.11 in front of the start pose.
+- x = 0.80 because at x ≈ 0.85–0.93 (the poses recorded on 2026-10-07 with
+  `tools/goto_pose.py`) green is at the edge of the reach with the tool pointing
+  down; at 0.80 all four spots are reachable at every height checked (3–15 cm).
+- Photograph the placed setup for the paper.
 
 ### 1.2 Participant side
 

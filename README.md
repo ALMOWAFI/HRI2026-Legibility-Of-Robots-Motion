@@ -10,7 +10,32 @@ Experiment node ── /trial_start ──► Motion node: baseline → legibili
                                     → MoveIt IK → joint trajectory → UR5e
 Participant → Buttons → /button_press → Experiment node → choices + timestamps + trial data (CSV)
 ```
-No vision node: blocks don't move, so their coordinates live in `config/experiment.yaml`.
+No vision node: block coordinates live in `config/experiment.yaml`, in the robot frame.
+The table moves between lab sessions, so the robot places the blocks (see below).
+
+## Before every lab session (calibration)
+The cube spots are fixed relative to the robot, not the table. Each session:
+1. Put the table under the row of spots (about 80 cm in front of the robot base,
+   from 16 cm to its left to 38 cm to its right) and clear it.
+2. Bring up the robot (one terminal each, keep them running):
+   ```
+   ~/scripts/launch_hardware.sh
+   ~/scripts/resend_robot_program.sh      # pendant in Remote Control
+   ```
+3. Preview, then run the placement at the robot, hand on the e-stop:
+   ```
+   python3 tools/place_blocks.py              # plan + RViz preview, no motion
+   python3 tools/place_blocks.py --execute    # robot points at each spot
+   ```
+   For each colour the robot stops 3 cm above where the cube's top will be; put the
+   cube under the tool tip (long side pointing at the robot), press Enter. The cube
+   appears in RViz. If the tip is clearly not ~3 cm above the table top, the table
+   height differs: stop and adjust `motion.touch_z`.
+4. Optional check: `python3 tools/test_motion.py yellow` (preview) / `--execute`.
+
+After restarting MoveIt or RViz, `python3 tools/spawn_cubes.py` shows the cubes again
+(no motion). Robot motion always needs a person at the terminal typing `go`;
+Claude Code is blocked from running it (`.claude/hooks/block_robot_motion.py`).
 
 ## Layout
 | Path | Purpose |
@@ -22,6 +47,13 @@ No vision node: blocks don't move, so their coordinates live in `config/experime
 | `msg/ChoiceEvent.msg` | Participant choice change |
 | `config/experiment.yaml` | Block coordinates, robot, trial settings |
 | `launch/hri.launch` | Starts both nodes |
+| `src/hri_legible_motion/robot.py` | FK, Cartesian planning with our timing, execution |
+| `src/hri_legible_motion/safety.py` | Workspace / speed / joint-jump checks, operator confirmation |
+| `src/hri_legible_motion/scene.py` | Cubes in the MoveIt scene and as RViz markers |
+| `tools/place_blocks.py` | Session calibration: robot points, you place the cubes |
+| `tools/spawn_cubes.py` | Show the cubes in RViz (no motion) |
+| `tools/test_motion.py` | Straight test reach to one cube |
+| `docs/experiment_plan.md` | Study implementation plan |
 
 ## Topics
 | Topic | Type | From → To |
