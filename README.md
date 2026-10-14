@@ -15,8 +15,10 @@ The table moves between lab sessions, so the robot places the blocks (see below)
 
 ## Before every lab session (calibration)
 The cube spots are fixed relative to the robot, not the table. Each session:
-1. Put the table under the arc of spots (75–83 cm in front of the robot base,
-   from 11 cm to its left to 38 cm to its right) and clear it.
+1. Put the table under the arc of spots (80–88 cm in front of the robot base,
+   from 12 cm to its left to 39 cm to its right) and clear it.
+   To change the layout: `python3 tools/make_layout.py --back 0.05 --radius 0.45` (preview,
+   no motion), add `--write` to update the config, then redo the placement.
 2. Bring up the robot (one terminal each, keep them running):
    ```
    ~/scripts/launch_hardware.sh
