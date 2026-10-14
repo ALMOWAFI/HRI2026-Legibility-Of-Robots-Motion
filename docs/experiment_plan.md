@@ -1,0 +1,330 @@
+# Experiment Plan: Legible vs. Predictable Motion on the UR5e (2 × 4)
+
+Implementation plan for the study in `HRI_Study_Design_Form_2x4.docx`, moved
+from the Sawyer/joystick setup described in the form to the lab setup:
+**UR5e + 4 cubes + 4 buttons + a monitor**.
+
+---
+
+## 0. Differences between the form and the lab setup (update the form)
+
+| Form says | Lab reality | Plan |
+|---|---|---|
+| Sawyer robot | UR5e (ROS Noetic, `ur_robot_driver`) | Replace everywhere in the form. |
+| Joystick (4 directions) | 4 push buttons → `/button_press` (Int32, 0–3) | One button per cube, placed in a row in the same left-to-right order as the cubes **from the participant's side**. |
+| Sawyer head screen shows choice + score | No head screen | A monitor next to the robot (facing the participant) runs a small display node: current choice, score, confidence prompt. |
+| "Head-screen angle" held constant | – | Hold the **monitor position** constant instead. |
+| Bend "away from the other cubes" | Cube spacing is ~18 cm (< 20 cm bend) | Define the direction explicitly for middle cubes (see §2.2). |
+| Confidence / naturalness 1–7 input | Only 4 buttons | Use a keypad/number keys on a laptop, or a tablet form (see §3.3). |
+| Trust "validated scale" | – | Pick one now, e.g. Jian et al. (2000) Trust in Automation (12 items) or Schaefer's 14-item trust scale. |
+
+---
+
+## 1. Physical setup
+
+### 1.1 Cube positions (already recorded, `tools/goto_pose.py`)
+
+TCP positions in `arm_base_link` (m), measured 2026-10-07:
+
+| Cube | x | y | z | Role |
+|---|---|---|---|---|
+| B1 | 0.919 | 0.153 | 0.011 | edge |
+| B2 | 0.930 | −0.031 | 0.005 | middle |
+| B3 | 0.907 | −0.209 | 0.003 | middle |
+| B4 | 0.876 | −0.371 | 0.046 | edge |
+
+- Spacing ≈ 18 cm, row roughly along the robot's y axis at x ≈ 0.9 m.
+- **Check:** x ≈ 0.9 m is close to the UR5e's 0.85 m reach. The bent paths
+  pass through less extended poses, but the end poses (especially B4, which
+  needs a different wrist_1 angle than the others) should be checked for
+  closeness to singularity. If the IK struggles, move the row to x ≈ 0.65–0.75 m
+  and record the poses again.
+- Mark the cube footprints and the chair position with tape. Photograph the
+  setup for the paper.
+- Fill `config/experiment.yaml → blocks` with these values (and fix
+  `frame_id`: the robot uses the `arm_` prefix, so it is `arm_base_link`, not `base_link`).
+
+### 1.2 Participant side
+
+```
+             UR5e base
+                 │
+      B1    B2    B3    B4        ← cubes (robot's +y on the left from the robot's view)
+   ───────────────────────────    table
+      [4]   [3]   [2]   [1]       ← buttons, mirrored so they line up with the
+                                     cubes as the participant sees them
+              participant           monitor to one side, facing the participant
+```
+
+- The participant sits on the opposite side, **outside the robot's reach envelope**
+  (> 1.0 m from the base plus margin), with the buttons on their side of the table.
+- Buttons are mapped to **positions**, not colours, so the colour rotation
+  (§4.3) does not change the button mapping. Mapping lives in
+  `experiment.button_map` in the config.
+- Cube colours: 4 clearly distinguishable colours (e.g. red, blue, yellow, green).
+
+### 1.3 Start pose
+
+- One fixed start (home) pose for every trial: centred laterally between B2 and B3
+  (y ≈ −0.12), pulled back and raised, e.g. `(0.45, −0.12, 0.30)` with the tool pointing down.
+- Centred start means the straight (predictable) path is maximally ambiguous at
+  the start, which is what the comparison needs.
+- Reach end = a hover point 5 cm above the cube (no grasp, no contact). The
+  "reach" for scoring is start pose → hover point.
+
+---
+
+## 2. Motion design
+
+### 2.1 Paths (in `src/hri_legible_motion/legibility.py`)
+
+Let `p0` = start, `p1` = hover point over the target, `s ∈ [0, 1]` the path parameter,
+`n` = horizontal unit vector perpendicular to `p1 − p0`, pointing in the bend direction.
+
+- **Predictable:** straight line `p(s) = p0 + s·(p1 − p0)`.
+- **Legible:** the same line plus a lateral offset
+  `p(s) = p0 + s·(p1 − p0) + D·sin(π s)·n`, with **D = 0.20 m** fixed.
+  The offset is 0 at both ends, maximal (20 cm) at mid-reach, and the end pose is
+  identical to the predictable one.
+- Orientation constant (tool pointing down) on both paths; height interpolated
+  linearly.
+- `legibility_score()` (Dragan et al. 2013) is computed offline for each of the
+  8 trajectories and logged; it is a description, not the generator.
+
+### 2.2 Bend direction
+
+| Target | Bend direction | Reason |
+|---|---|---|
+| B1 (edge) | outward (+y) | free side |
+| B4 (edge) | outward (−y) | free side |
+| B2 (middle) | toward B1's side (+y) | away from the two cubes on the other side (B3, B4) |
+| B3 (middle) | toward B4's side (−y) | away from B1, B2 |
+
+For middle cubes the bend necessarily points toward a neighbour, which is the
+reason for H3. Write this rule into the form.
+
+### 2.3 Timing (equal duration, same speed profile)
+
+- Reach duration **T = 4 s** for every trajectory (to be confirmed in the pilot;
+  long enough to give the participant time to react, short enough to keep the
+  session time).
+- Same time law for both: minimum-jerk on normalised **arc length**,
+  `σ(τ) = 10τ³ − 15τ⁴ + 6τ⁵`, `τ = t/T`. The legible path is longer, so it
+  moves faster at the same relative time, and both finish at `T`.
+- **Speed slider on the teach pendant must be 100 %.** The scaled controller
+  slows time down otherwise and the durations stop matching. The experiment node
+  checks `/speed_scaling_factor` before each trial and refuses to start if it is below 1.0.
+
+### 2.4 From path to joint trajectory: precompute, don't plan live
+
+Plan the 8 trajectories (2 motion types × 4 cubes) **once, offline**, and replay
+exactly the same joint trajectories for every participant:
+
+1. `tools/precompute_trajectories.py`: sample each Cartesian path at 100 Hz (400 points),
+   solve IK point by point seeded from the previous solution (MoveIt `/compute_ik`
+   or TRAC-IK), reject any joint jump > ~5° between samples.
+2. Attach times from §2.3, compute velocities by finite differences.
+3. Save to `config/trajectories.yaml` (or `.npz`) with a hash. The session log
+   stores the hash, so every participant is shown to have seen identical motions.
+4. Check in RViz (`ur5e_moveit_config demo.launch`) and with a collision check
+   against the table, then on the real robot at reduced speed (2× / 3× T) with a
+   hand on the e-stop, then at full speed.
+5. `motion_node.py` only loads the file and sends the stored trajectory to
+   `/scaled_pos_joint_traj_controller/follow_joint_trajectory` (same
+   action-client code as `tools/goto_pose.py`). Return to start is a separate,
+   slow (e.g. 3 s) straight joint move.
+
+No re-planning during a session means no trial-to-trial variation and no surprise
+paths.
+
+### 2.5 Manipulation check on the executed path
+
+- `rosbag record /joint_states /tf /button_press /choice /trial_start /motion_status`
+  for the whole session.
+- Offline: compute the TCP path from `tf`, the maximum lateral deviation from the
+  straight line (legible ≈ 0.20 m, predictable ≈ 0), and the actual reach
+  duration (both ≈ T). Report this first in the results.
+
+---
+
+## 3. Software
+
+### 3.1 Nodes and topics (existing skeleton)
+
+| Node | Job |
+|---|---|
+| `motion_node.py` | Loads precomputed trajectories, executes on `/trial_start`, publishes `executing` / `done` / `failed` / `home` on `/motion_status` with timestamps. |
+| `experiment_node.py` | Session state machine, trial list, button handling, scoring, CSV logging. |
+| **new** `display_node.py` | Fullscreen window on the monitor (Tkinter or rqt): highlights the current choice, shows the score after the trial, the confidence/naturalness prompt, announcements. |
+| **new** `tools/precompute_trajectories.py` | §2.4. |
+| **new** `tools/make_schedule.py` | Generates the counterbalanced trial schedule per participant (§4). |
+| **new** `tools/analyze.py` | Score computation check + statistics (§6). |
+
+### 3.2 Trial state machine (experiment node)
+
+```
+HOME ──(experimenter presses "next" / auto)──► READY (screen: "Get ready", choice cleared)
+READY ──1 s──► publish /trial_start ──► REACH (motion_node executes, buttons live)
+REACH ──/motion_status done──► LOCK (final answer = selection at reach end)
+LOCK ──► SCORE (screen shows round(10·f) for 3 s)
+SCORE ──► RATING (confidence 1–7)  ──► motion_node returns home ──► HOME
+```
+
+- Buttons are only live during REACH; presses outside are logged but ignored.
+- A press of the already selected button keeps the choice (no toggling off).
+
+### 3.3 Rating input
+
+The 4 buttons cannot give 1–7. Options, in order of preference:
+1. A USB numeric keypad (keys 1–7) on the participant's side, read by the
+   display node. Cheap and fast.
+2. A tablet showing a 7-point slider.
+
+Post-block questionnaires (clarity, trust) and the demographics form are on
+paper or a separate tablet form, not in ROS.
+
+### 3.4 Timing and scoring (same ROS clock)
+
+- `t_start` = reach onset taken from `/joint_states` (first sample where any joint
+  velocity exceeds a small threshold), not the time the goal was sent, because
+  the driver adds a small start delay.
+- `t_end` = `t_start + T` (cross-checked with the `done` status).
+- Button press stamp = `rospy.Time.now()` in the callback of `/button_press`.
+  Measure the button-to-ROS latency once (e.g. high-speed phone video of a
+  button and the screen); report it.
+- Per trial:
+  - **f** = (time in [t_start, t_end] with the correct cube selected) / T; no selection counts as wrong.
+  - score shown = `round(10·f)`.
+  - **t_first_correct** / T, **t_commit** / T (last switch after which it stayed correct; 1.0 if never), **n_switches**, **final_correct**.
+
+### 3.5 Output files (`output_dir/<participant>/`)
+
+| File | Content |
+|---|---|
+| `session.yaml` | participant id, block order, colour rotation, trajectory hash, T, date, notes |
+| `trials.csv` | one row per trial: block, phase (warmup/main/announced), trial index, target pos, target colour, motion, f, score, t_first_correct, t_commit, n_switches, final_correct, confidence, naturalness |
+| `choices.csv` | every choice change: trial id, stamp, choice_id, time relative to t_start |
+| `session.bag` | rosbag (§2.5) |
+
+Questionnaire answers are typed into `questionnaires.csv` afterwards, keyed by participant id.
+
+---
+
+## 4. Trial schedule and counterbalancing
+
+### 4.1 Structure per participant
+
+| Phase | Trials | Content |
+|---|---|---|
+| Warm-up | 4 | 2 predictable + 2 legible, different cubes, not analysed |
+| Block A | 16 | one motion type, each cube 4×, random order |
+| break + clarity/trust questionnaire | – | ~3 min |
+| Block B | 16 | the other motion type |
+| clarity/trust questionnaire | – | |
+| Target-announced block | 8 | each cube × each motion once, random order; target announced on the screen by colour + position, then the reach, then naturalness 1–7 |
+
+### 4.2 Order within blocks
+
+Random order per participant from a seeded RNG (seed = participant number, saved
+in `session.yaml`), with the constraint that the same cube does not appear more
+than twice in a row.
+
+### 4.3 Between participants
+
+Two counterbalanced factors: block order (P→L / L→P) × colour rotation
+(4 cyclic rotations of the colours over the 4 positions) = **8 cells**.
+Instead of a plain random draw, prepare a **balanced assignment list** for
+P01–P16 (each cell twice), shuffled once, and continue cyclically for P17–P20.
+This keeps block order exactly 50/50, which the plain RNG in the form does not
+guarantee for small N. Update the form accordingly.
+
+---
+
+## 5. Session protocol (~50 min)
+
+| Step | Time |
+|---|---|
+| Greeting, information sheet, consent, demographics | 5 min |
+| Scripted instructions (read verbatim), safety rules, demo of buttons + score | 5 min |
+| Warm-up (4 trials) | 3 min |
+| Block A (16 × ~30 s) | 8 min |
+| Questionnaire + break | 4 min |
+| Block B | 8 min |
+| Questionnaire | 3 min |
+| Target-announced block (8 × ~25 s) | 4 min |
+| Interview (questions from the form, audio-recorded with consent) | 7 min |
+| Debrief | 3 min |
+| **Total** | **~50 min** |
+
+Experimenter checklist before each participant:
+robot powered + External Control running, speed slider 100 %, cubes on marks in the
+correct colour rotation, buttons tested, `roslaunch hri_legible_motion hri.launch participant:=PXX`,
+rosbag running, display shows "Get ready".
+
+---
+
+## 6. Analysis plan (pre-register before data collection)
+
+1. **Manipulation checks** (reported first): executed lateral deviation per
+   condition; clarity rating legible vs. predictable (paired t / Wilcoxon).
+2. **Order check:** mixed ANOVA with block order as a between factor; if no
+   order effect, drop it.
+3. **H1, H2, H3:** 2 (motion) × 4 (cube) repeated-measures ANOVA on per-participant
+   mean f and mean confidence per cell. Greenhouse–Geisser correction if
+   sphericity fails. H1/H2 = main effect of motion; H3 = interaction plus planned
+   contrast (legible − predictable) for edge vs. middle cubes.
+   Secondary: same model on t_first_correct and t_commit. Optionally a mixed
+   model on trial-level data (participant random intercept) as a robustness check.
+4. **H4:** paired comparison of naturalness (mean of the 4 ratings per motion
+   type) from the target-announced block, paired t or Wilcoxon.
+5. **Exclusions** (fixed in advance): trials with a robot fault/protective stop,
+   participants who missed > 25 % of trials or did not understand the task.
+6. Effect sizes (partial η², d_z) with 95 % CIs, in addition to p-values.
+7. Interviews: short thematic coding by two team members.
+
+---
+
+## 7. Safety and ethics
+
+- Participant seat and button table outside the robot's reach; mark a floor
+  line they must not cross.
+- Collaborative-robot safety settings on the pendant: reduced TCP speed /
+  force limits, safety planes for the table surface and the participant side.
+- Experimenter keeps a hand on the e-stop for every robot motion.
+- Precomputed trajectories only; nothing is planned live with a participant present.
+- Ethics approval / consent form, anonymised IDs, no video of faces unless consented.
+
+---
+
+## 8. Pilot (4–6 people, data not pooled)
+
+Check:
+- the two motion types look clearly different at T = 4 s (and that legible is
+  not so fast that it looks alarming);
+- f is not at ceiling/floor (if everyone gets 10 on legible, shorten T or reduce
+  initial ambiguity; if everyone gets ~0, lengthen T);
+- button mapping is intuitive (no left/right confusion across the table);
+- session timing ≤ 50 min;
+- logging + score computation: recompute f offline from the bag and compare with
+  the live value.
+
+---
+
+## 9. Work packages and milestones
+
+| # | Work package | Output | Depends on |
+|---|---|---|---|
+| 1 | Finalise setup: cube row, start pose, buttons, monitor; fill config | `config/experiment.yaml` | – |
+| 2 | Path generation + legibility score | `legibility.py`, unit tests (endpoints equal, max offset = 0.20 m, equal duration) | 1 |
+| 3 | IK precompute + RViz check + slow real-robot check | `tools/precompute_trajectories.py`, `config/trajectories.yaml` | 2 |
+| 4 | Motion node (execute stored trajectories, status) | `motion_node.py` | 3 |
+| 5 | Experiment node (state machine, scoring, CSV) + schedule generator | `experiment_node.py`, `tools/make_schedule.py` | 1 |
+| 6 | Display node + keypad input | `display_node.py` | 5 |
+| 7 | Dry run end-to-end with team members; latency measurement | – | 4, 5, 6 |
+| 8 | Ethics, consent, script, questionnaires, updated form | docs | – |
+| 9 | Pilot (§8), adjust T if needed, freeze trajectories | – | 7, 8 |
+| 10 | Main study (N = 15–20) | data | 9 |
+| 11 | Analysis script + report | `tools/analyze.py` | 5 (can start on pilot data) |
+
+WP 2–4 (motion) and WP 5–6 (experiment/display) can run in parallel with two
+people each; WP 8 runs alongside.

@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""Plan a test reach from the start pose to the hover point above one cube, show it in
+RViz (MotionPlanning > Planned Path) and optionally run it on the UR5e.
+
+usage: test_motion.py <B1..B4 | orange|red|yellow|green> [--execute]
+
+Predictable (straight) motion only for now. Tool orientation is kept as at the start pose.
+Every trajectory passes hri_legible_motion.safety (workspace, speed, joint jumps) before it
+is shown or sent; --execute also needs a person at an interactive terminal to type 'go'.
+"""
+import os
+import sys
+
+import numpy as np
+import rospy
+import yaml
+
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+sys.path.insert(0, os.path.join(ROOT, "src"))  # works without catkin build
+from hri_legible_motion.legibility import baseline_path, sample  # noqa: E402
+from hri_legible_motion.robot import Robot  # noqa: E402
+from hri_legible_motion.safety import SafetyError, require_operator  # noqa: E402
+
+CONFIG = os.path.join(ROOT, "config", "experiment.yaml")
+
+
+def plan_reach(robot, cfg, block):
+    m = cfg["motion"]
+    start = m["start_joints"]
+    p0, orientation = robot.fk(start)
+    p1 = np.array([block["position"][0], block["position"][1], m["touch_z"] + m["hover_height"]])
+    # Samples are uniform in time under the min-jerk law, so MoveIt only solves IK per sample.
+    times, xyz = sample(baseline_path(p0, p1), m["duration"])
+    traj = robot.plan(start, times, xyz, orientation)
+    length = np.linalg.norm(p1 - p0)
+    qd = np.array([p.velocities for p in traj.points])
+    print("Start  [%.3f %.3f %.3f]\nHover  [%.3f %.3f %.3f]  (%s, %s)" % (tuple(p0) + tuple(p1) + (block["name"], block["color"])))
+    print("Straight line %.3f m in %.1f s, peak speed %.2f m/s, %d points, max joint speed %.0f deg/s"
+          % (length, m["duration"], 1.875 * length / m["duration"], len(times), np.degrees(np.abs(qd)).max()))
+    return traj
+
+
+def main():
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    with open(CONFIG) as f:
+        cfg = yaml.safe_load(f)
+    blocks = {k: b for b in cfg["blocks"] for k in (b["name"], b["color"])}
+    if len(args) != 1 or args[0] not in blocks:
+        sys.exit(__doc__)
+    execute = "--execute" in sys.argv
+    if execute and not sys.stdin.isatty():
+        sys.exit("--execute needs a person at an interactive terminal.")
+    rospy.init_node("test_motion", anonymous=True)
+    robot = Robot(cfg)
+    m = cfg["motion"]
+    start = m["start_joints"]
+
+    traj = plan_reach(robot, cfg, blocks[args[0]])
+    robot.show(start, [traj])
+    print("Shown in RViz (MotionPlanning > Planned Path).")
+    if not execute:
+        return
+
+    robot.connect()
+    print("Speed slider must be 100 %, or the reach will not take the planned time.")
+    off = robot.distance_deg(robot.current_joints(), start)
+    if off > cfg["safety"]["start_tolerance_deg"]:
+        if not require_operator("Robot is %.0f deg from the start pose. Move there in 8 s?" % off):
+            return
+        robot.move_joints(start, 8.0)
+    robot.check_at(start, "the start pose; the planned reach starts there")
+    if not require_operator("Run the reach to %s (%.1f s)?" % (args[0], m["duration"])):
+        return
+    robot.execute(traj)
+    print("Reach done.")
+    rospy.sleep(1.0)
+    robot.move_joints(start, m["return_duration"])
+    print("Back at start.")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except SafetyError as e:
+        sys.exit("SAFETY STOP: %s" % e)
