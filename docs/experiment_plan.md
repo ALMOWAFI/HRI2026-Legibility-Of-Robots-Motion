@@ -45,7 +45,8 @@ placed under it (see README, "Before every lab session").
   which would also bias the naturalness ratings for H4). Longer reaches, if wanted,
   come from moving the start pose back/up, not the cubes out.
 - All four spots reachable at every height checked (3–15 cm above the cubes),
-  farthest 0.86 m from the base. A straight row at x ≈ 0.85–0.93 (the poses
+  farthest 0.90 m from the base (yellow; close to the reach limit, re-check with
+  `make_layout.py` before enlarging). A straight row at x ≈ 0.85–0.93 (the poses
   recorded on 2026-10-07 with `tools/goto_pose.py`) put green at the edge of the reach.
 - Photograph the placed setup for the paper.
 
