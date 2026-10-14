@@ -13,7 +13,7 @@ from moveit_msgs.srv import GetCartesianPath, GetPositionFK
 from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
-from hri_legible_motion.safety import SafetyError, check_joints, check_path
+from hri_legible_motion.safety import SafetyError, check_direct_move, check_joints, check_path
 
 
 def joint_state(joints):
@@ -80,6 +80,21 @@ class Robot:
                                                     time_from_start=rospy.Duration(t)))
         return traj
 
+    def plan_return(self, start, orientation, lift_to=None):
+        """From joint dict `start` back to the start pose: optional lift to z = lift_to, then a
+        straight line to the start tool position (slow, stop at corners). The end joints are
+        checked to be within a small direct move of motion.start_joints."""
+        from hri_legible_motion.legibility import stop_and_go
+        home = self.m["start_joints"]
+        p, goal = self.fk(start)[0], self.fk(home)[0]
+        points = [p] + ([[p[0], p[1], max(p[2], lift_to)]] if lift_to else []) + [goal]
+        times, xyz = stop_and_go(points, self.cfg["setup"]["speed"])
+        traj = self.plan(start, times, xyz, orientation)
+        end = end_joints(traj)
+        names = list(home)
+        check_direct_move(self.limits, names, [end[n] for n in names], [home[n] for n in names], 2.0)
+        return traj
+
     def show(self, start, trajs):
         """Preview in RViz (MotionPlanning > Planned Path)."""
         rospy.sleep(0.5)
@@ -101,12 +116,17 @@ class Robot:
             raise SafetyError("Execution failed: %s" % ("no result" if r is None
                                                        else "%d %s" % (r.error_code, r.error_string)))
 
-    def move_joints(self, target, duration):
-        """Single-segment joint move from the current position, speed-checked."""
+    def check_move_joints(self, target, duration):
+        """Raise SafetyError if move_joints(target, duration) would not be allowed from here."""
         current = self.current_joints()
         names = list(target.keys())
-        q = np.array([[current[n] for n in names], [target[n] for n in names]])
-        check_joints(self.limits, np.array([0.0, duration]), q)
+        check_direct_move(self.limits, names, [current[n] for n in names], [target[n] for n in names], duration)
+
+    def move_joints(self, target, duration):
+        """Single-segment joint move from the current position: small corrections only
+        (size and speed checked), never a configuration change."""
+        self.check_move_joints(target, duration)
+        names = list(target.keys())
         traj = JointTrajectory(joint_names=names)
         traj.points = [JointTrajectoryPoint(positions=[target[n] for n in names], velocities=[0.0] * len(names),
                                             time_from_start=rospy.Duration(duration))]

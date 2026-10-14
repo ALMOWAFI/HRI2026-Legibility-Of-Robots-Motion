@@ -18,7 +18,7 @@ import yaml
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 sys.path.insert(0, os.path.join(ROOT, "src"))  # works without catkin build
 from hri_legible_motion.legibility import baseline_path, sample  # noqa: E402
-from hri_legible_motion.robot import Robot  # noqa: E402
+from hri_legible_motion.robot import Robot, end_joints  # noqa: E402
 from hri_legible_motion.safety import SafetyError, require_operator  # noqa: E402
 
 CONFIG = os.path.join(ROOT, "config", "experiment.yaml")
@@ -56,7 +56,9 @@ def main():
     start = m["start_joints"]
 
     traj = plan_reach(robot, cfg, blocks[args[0]])
-    robot.show(start, [traj])
+    back = robot.plan_return(end_joints(traj), robot.fk(start)[1])  # checked now, replanned after the reach
+    print("Return to start: %.1f s" % back.points[-1].time_from_start.to_sec())
+    robot.show(start, [traj, back])
     print("Shown in RViz (MotionPlanning > Planned Path).")
     if not execute:
         return
@@ -65,6 +67,7 @@ def main():
     print("Speed slider must be 100 %, or the reach will not take the planned time.")
     off = robot.distance_deg(robot.current_joints(), start)
     if off > cfg["safety"]["start_tolerance_deg"]:
+        robot.check_move_joints(start, 8.0)  # refuses big configuration changes before asking
         if not require_operator("Robot is %.0f deg from the start pose. Move there in 8 s?" % off):
             return
         robot.move_joints(start, 8.0)
@@ -74,7 +77,8 @@ def main():
     robot.execute(traj)
     print("Reach done.")
     rospy.sleep(1.0)
-    robot.move_joints(start, m["return_duration"])
+    robot.execute(robot.plan_return(robot.current_joints(), robot.fk(start)[1]))
+    robot.move_joints(start, 2.0)  # residual correction, a fraction of a degree
     print("Back at start.")
 
 

@@ -37,12 +37,6 @@ def plan_visit(robot, cfg, start, orientation, block):
     return robot.plan(start, times, xyz, orientation)
 
 
-def plan_lift(robot, cfg, start, orientation):
-    p = robot.fk(start)[0]
-    times, xyz = stop_and_go([p, [p[0], p[1], max(p[2], cfg["setup"]["safe_height"])]], cfg["setup"]["speed"])
-    return robot.plan(start, times, xyz, orientation)
-
-
 def banner(block):
     c = ANSI.get(block["color"], "")
     print("\n" + c + "=" * 60)
@@ -60,7 +54,8 @@ def preview(robot, cfg, start, orientation):
         joints = end_joints(trajs[-1])
         print("%-7s %-2s  tool at %s  (%.1f s)" % (b["color"], b["name"], np.round(robot.fk(joints)[0], 3).tolist(),
                                                      trajs[-1].points[-1].time_from_start.to_sec()))
-    trajs.append(plan_lift(robot, cfg, joints, orientation))
+    trajs.append(robot.plan_return(joints, orientation, lift_to=cfg["setup"]["safe_height"]))
+    print("return  to start pose  (%.1f s)" % trajs[-1].points[-1].time_from_start.to_sec())
     robot.show(start, trajs)
     print("All moves pass the safety checks. Preview shown in RViz (MotionPlanning > Planned Path).")
     print("Run with --execute at the robot to place the cubes.")
@@ -72,6 +67,7 @@ def run(robot, cfg, start, orientation):
     set_cubes(cfg, [])  # nothing placed yet
     print("Clear the table. Speed slider 100 %. Hand on the e-stop for every move.")
     if robot.distance_deg(robot.current_joints(), start) > cfg["safety"]["start_tolerance_deg"]:
+        robot.check_move_joints(start, 8.0)  # refuses big configuration changes before asking
         if not require_operator("Move to the start pose (8 s)?"):
             return
         robot.move_joints(start, 8.0)
@@ -91,9 +87,10 @@ def run(robot, cfg, start, orientation):
         print("   %s cube added to RViz." % b["color"])
 
     print("\nPlaced %d/%d cubes: %s" % (len(placed), len(cfg["blocks"]), ", ".join(b["color"] for b in placed)))
-    if require_operator("Lift and return to the start pose?"):
-        robot.execute(plan_lift(robot, cfg, robot.current_joints(), orientation))
-        robot.move_joints(start, 6.0)
+    back = robot.plan_return(robot.current_joints(), orientation, lift_to=cfg["setup"]["safe_height"])
+    if require_operator("Lift and return to the start pose (%.0f s)?" % back.points[-1].time_from_start.to_sec()):
+        robot.execute(back)
+        robot.move_joints(start, 2.0)  # residual correction, a fraction of a degree
         print("Back at start.")
 
 

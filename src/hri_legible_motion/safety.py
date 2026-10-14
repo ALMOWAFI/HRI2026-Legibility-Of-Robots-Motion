@@ -41,6 +41,23 @@ def check_joints(limits, times, q):
         raise SafetyError("Joint jump of %.1f deg between samples (IK branch flip?)" % step.max())
 
 
+def check_direct_move(limits, names, q0, q1, duration):
+    """A single straight-in-joint-space move (no planning, no collision check): only allowed
+    for small corrections. A big change means a different arm configuration, and the arm
+    would sweep through space it has not been checked against."""
+    change = np.degrees(np.abs(np.asarray(q1) - np.asarray(q0)))
+    i = int(np.argmax(change))
+    if change[i] > limits["max_direct_move_deg"]:
+        raise SafetyError(
+            "The robot is in a different arm configuration: %s would turn %.0f deg (limit %.0f) "
+            "and the arm would sweep through unchecked space. Bring it to the start pose with "
+            "MoveIt first (~/scripts/move_to_ready.sh, the SRDF 'ready' pose), then run this again."
+            % (names[i], change[i], limits["max_direct_move_deg"]))
+    if change[i] / duration > limits["max_joint_speed_deg"]:
+        raise SafetyError("Joint speed %.0f deg/s exceeds the limit of %.0f deg/s"
+                          % (change[i] / duration, limits["max_joint_speed_deg"]))
+
+
 def require_operator(prompt):
     """Ask a human at the keyboard. Refuses when stdin is not an interactive terminal,
     so scripts, pipes and AI agents cannot confirm a motion."""

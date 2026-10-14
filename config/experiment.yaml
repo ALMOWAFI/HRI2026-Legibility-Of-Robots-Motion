@@ -28,7 +28,6 @@ motion:
   touch_z: 0.003       # tool0 z with the real tool tip on a cube (recorded B1..B4 poses)
   hover_height: 0.05   # reach ends this far above touch_z
   duration: 4.0        # s, every reach (both motion types)
-  return_duration: 4.0 # s, back to start after a reach
 
 # tools/place_blocks.py: the robot points at each cube position so it can be placed by hand.
 setup:
@@ -44,5 +43,6 @@ safety:
   max_joint_speed_deg: 60.0   # deg/s
   max_joint_step_deg: 2.0     # between 10 ms samples; more = IK branch flip
   start_tolerance_deg: 0.6    # robot must be this close to start_joints before a reach
+  max_direct_move_deg: 30.0   # unplanned joint moves (e.g. to start) only if every joint changes less
 
 experiment: {}    # participant_id, output_dir, button mapping, conditions, targets, repeats
