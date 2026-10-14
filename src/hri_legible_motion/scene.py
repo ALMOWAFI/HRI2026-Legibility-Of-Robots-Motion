@@ -1,6 +1,8 @@
 """Cubes in the MoveIt planning scene (collision checking) and as RViz markers on
 /visualization_marker_array (shown by the lab RViz config, whose MotionPlanning display is off).
 """
+import math
+
 import rospy
 from geometry_msgs.msg import Pose
 from moveit_msgs.msg import CollisionObject, ObjectColor, PlanningScene
@@ -15,7 +17,8 @@ _markers = None
 def block_pose(b):
     pose = Pose()
     pose.position.x, pose.position.y, pose.position.z = b["position"]
-    pose.orientation.w = 1.0
+    half = math.radians(b.get("yaw", 0.0)) / 2
+    pose.orientation.z, pose.orientation.w = math.sin(half), math.cos(half)
     return pose
 
 

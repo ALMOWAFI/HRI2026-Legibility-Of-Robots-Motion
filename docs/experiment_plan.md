@@ -29,17 +29,23 @@ robot frame (`arm_base_link`), not on the table. Before every session,
 `tools/place_blocks.py --execute` points the tool at each spot and the cubes are
 placed under it (see README, "Before every lab session").
 
-| Cube | Colour | x | y | Role |
-|---|---|---|---|---|
-| B1 | orange | 0.80 | 0.16 | edge |
-| B2 | red | 0.80 | −0.02 | middle |
-| B3 | yellow | 0.80 | −0.20 | middle |
-| B4 | green | 0.80 | −0.38 | edge |
+| Cube | Colour | x | y | yaw | Role |
+|---|---|---|---|---|---|
+| B1 | orange | 0.745 | 0.114 | +43.4° | edge |
+| B2 | red | 0.833 | −0.044 | +14.5° | middle |
+| B3 | yellow | 0.833 | −0.224 | −14.5° | middle |
+| B4 | green | 0.745 | −0.381 | −43.4° | edge |
 
-- 18 cm spacing, row centred on y = −0.11 in front of the start pose.
-- x = 0.80 because at x ≈ 0.85–0.93 (the poses recorded on 2026-10-07 with
-  `tools/goto_pose.py`) green is at the edge of the reach with the tool pointing
-  down; at 0.80 all four spots are reachable at every height checked (3–15 cm).
+- **Arc of radius 0.36 m around the start pose's tool position** (0.484, −0.134),
+  18 cm between neighbours. Every reach is the same length (0.408 m incl. the
+  height change), so edge vs. middle (H3) is not confounded with reach length.
+  Cubes are turned so their long side lies along their reach line.
+- Not at full extension: near it the arm is close to singular (fast, jerky joints,
+  which would also bias the naturalness ratings for H4). Longer reaches, if wanted,
+  come from moving the start pose back/up, not the cubes out.
+- All four spots reachable at every height checked (3–15 cm above the cubes),
+  farthest 0.86 m from the base. A straight row at x ≈ 0.85–0.93 (the poses
+  recorded on 2026-10-07 with `tools/goto_pose.py`) put green at the edge of the reach.
 - Photograph the placed setup for the paper.
 
 ### 1.2 Participant side

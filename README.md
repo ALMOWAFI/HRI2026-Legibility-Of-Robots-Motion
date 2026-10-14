@@ -15,8 +15,8 @@ The table moves between lab sessions, so the robot places the blocks (see below)
 
 ## Before every lab session (calibration)
 The cube spots are fixed relative to the robot, not the table. Each session:
-1. Put the table under the row of spots (about 80 cm in front of the robot base,
-   from 16 cm to its left to 38 cm to its right) and clear it.
+1. Put the table under the arc of spots (75–83 cm in front of the robot base,
+   from 11 cm to its left to 38 cm to its right) and clear it.
 2. Bring up the robot (one terminal each, keep them running):
    ```
    ~/scripts/launch_hardware.sh
@@ -28,7 +28,7 @@ The cube spots are fixed relative to the robot, not the table. Each session:
    python3 tools/place_blocks.py --execute    # robot points at each spot
    ```
    For each colour the robot stops 3 cm above where the cube's top will be; put the
-   cube under the tool tip (long side pointing at the robot), press Enter. The cube
+   cube under the tool tip (long side pointing back toward the start pose), press Enter. The cube
    appears in RViz. If the tip is clearly not ~3 cm above the table top, the table
    height differs: stop and adjust `motion.touch_z`.
 4. Optional check: `python3 tools/test_motion.py yellow` (preview) / `--execute`.

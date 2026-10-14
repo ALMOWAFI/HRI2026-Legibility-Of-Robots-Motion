@@ -48,7 +48,8 @@ def banner(block):
     print("\n" + c + "=" * 60)
     print("   PLACE THE %s CUBE  (%s)" % (block["color"].upper(), block["name"]))
     print("=" * 60 + "\033[0m")
-    print("   Centre it under the tool tip, long side (5.3 cm) pointing at the robot base.")
+    print("   Centre it under the tool tip, long side (5.3 cm) pointing back along the robot's")
+    print("   reach, toward where the tool starts (turned %+.0f deg from straight ahead)." % block.get("yaw", 0.0))
     print("   The robot is stopped and will not move until you type 'go' again.")
 
 
