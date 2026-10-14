@@ -2,3 +2,12 @@ __pycache__/
 *.pyc
 build/
 devel/
+.venv-legibility/
+# LaTeX products belong in build/research; also ignore accidental in-source builds.
+docs/research/*.aux
+docs/research/*.log
+docs/research/*.out
+docs/research/*.pdf
+docs/research/*.toc
+docs/research/*.fls
+docs/research/*.fdb_latexmk

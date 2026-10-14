@@ -1,0 +1,853 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{hyperref}
+\usepackage{listings}
+\setlength{\emergencystretch}{2em}
+\urlstyle{same}
+
+\hypersetup{
+    hidelinks
+}
+
+\lstset{
+    basicstyle=\ttfamily\scriptsize,
+    breaklines=true,
+    breakatwhitespace=false,
+    frame=single,
+    columns=fullflexible,
+    keepspaces=true,
+    numbers=left,
+    numberstyle=\tiny,
+    numbersep=6pt,
+    showstringspaces=false,
+    tabsize=4
+}
+
+\title{
+Legibility Optimization for a UD5 Manipulator:
+Joint-Space Trajectory Optimization with
+Forward-Kinematics-Based Goal Inference
+}
+
+\author{
+HRI Legible Robot Motion Project
+}
+
+\date{Research report and repository integration: October 14, 2026}
+
+\begin{document}
+
+\maketitle
+
+\section*{Executive Summary}
+
+This document specifies a legibility-optimization module
+placed after a conventional MoveIt motion planner and before
+robot execution.
+
+The baseline planner produces a feasible joint-space trajectory
+
+\[
+Q^0 = [q_0^0,\ldots,q_{N-1}^0].
+\]
+
+The legibility optimizer modifies the interior joint
+configurations while preserving the start and target
+configurations.
+
+Human-visible legibility is evaluated in task space:
+
+\[
+x_i = FK(q_i).
+\]
+
+The optimizer therefore separates robot kinematics from the
+human goal-inference model.
+
+The proposed implementation combines the cost-based
+goal-inference idea of Dragan and Srinivasa with the
+configuration-space / task-space separation emphasized by
+Bodden et al.
+
+The optimizer output is a candidate trajectory, not an
+automatically safe execution trajectory. The candidate must
+subsequently undergo trajectory retiming, robot-specific collision/path and
+joint-limit validation, and simulation before explicitly authorized hardware
+execution. An optional geometric precheck may precede retiming; validation
+of the final retimed trajectory remains mandatory.
+
+\paragraph{Repository integration status.}
+This manuscript preserves the supplied report's UD5 terminology.
+Inspection of repository revision \texttt{18a1b66} finds documentation for
+ROS~1 Noetic and a UR5e, not a confirmed UD5 kinematic model.
+No equivalence between UD5, UR5, and UR5e is assumed.
+The motion node and planner are TODO scaffolds; the separate recorded-pose
+controller tool is unchanged. The new code is an offline experimental
+package, outside the catkin launch and execution path. The installed MoveIt
+version, robot description, planning group, goal frame, FK, collision checker,
+and retimer still require lab verification. See the companion
+\texttt{integration.md} and \texttt{provenance.md} for the inspected files
+and the changes made while integrating the supplied source.
+
+\section{Introduction}
+
+Legible robot motion communicates a robot's intended goal
+through the movement itself.
+
+For a reaching task with multiple candidate targets, an
+efficient trajectory may be ambiguous early in the motion.
+A legibility optimizer intentionally modifies the trajectory so
+that an observer can infer the true target earlier.
+
+Dragan and Srinivasa introduced a probabilistic formulation of
+legible motion and optimized trajectories while constraining
+excessive deviation using a trust region
+\cite{dragan2013}.
+
+Bodden et al. later proposed a flexible constrained
+optimization formulation for robot arms and explicitly
+separated robot configuration space, task space, and the model
+of human interpretation \cite{bodden2018}.
+
+This separation motivates the present system.
+
+The planner and robot communicate using joint-space
+trajectories, but the legibility objective operates on
+end-effector positions obtained from forward kinematics.
+
+\section{System Architecture}
+
+The system is
+
+\[
+\begin{gathered}
+\text{MoveIt / RRT-Connect baseline}
+\longrightarrow \text{standalone legibility optimizer} \\
+\longrightarrow \text{retiming}
+\longrightarrow \text{robot-specific validation} \\
+\longrightarrow \text{simulation}
+\longrightarrow \text{explicit execution}.
+\end{gathered}
+\]
+
+The optimizer receives:
+
+\begin{itemize}
+    \item joint names,
+    \item joint positions at all trajectory waypoints,
+    \item timestamps,
+    \item the intended target index,
+    \item Cartesian positions of all candidate targets,
+    \item a forward-kinematics callback,
+    \item joint limits,
+    \item hard per-joint local deviation limits,
+    \item optional velocity and acceleration limits.
+\end{itemize}
+
+The optimizer returns:
+
+\begin{itemize}
+    \item candidate joint positions,
+    \item nominal timestamps,
+    \item baseline and candidate legibility scores,
+    \item baseline and candidate motion costs,
+    \item realized cost ratio,
+
+    \item constraint-status diagnostics, numerical acceptance, and
+          physical validity reported separately (unassessed in the core).
+\end{itemize}
+
+\subsection{System Flowchart}
+
+The Mermaid source for the system diagram is:
+
+\begin{lstlisting}
+flowchart LR
+     A[MoveIt / RRT-Connect baseline]
+         --> B[RobotTrajectory]
+
+     B --> C[Legibility optimizer]
+
+     G[Fixed goal positions]
+         --> C
+
+     T[True trial target]
+         --> C
+
+     K[Local FK model]
+         --> C
+
+     C --> D[Optimized candidate]
+
+     D --> E[Optional geometric precheck]
+
+     E --> F[Trajectory retiming]
+
+     F --> H[Validate retimed path and robot constraints]
+
+     H --> I[RViz / simulation]
+
+    I --> J[Explicit authorized execution]
+\end{lstlisting}
+
+\section{Trajectory Representation}
+
+The robot path is represented as
+
+\[
+Q =
+[q_0,q_1,\ldots,q_{N-1}],
+\]
+
+where
+
+\[
+q_i \in \mathbb{R}^{d}.
+\]
+
+The corresponding timestamps are
+
+\[
+T =
+[t_0,t_1,\ldots,t_{N-1}].
+\]
+
+The optimizer fixes
+
+\[
+q_0 = q_0^0
+\]
+
+and
+
+\[
+q_{N-1} = q_{N-1}^0
+\]
+
+and changes only the interior configurations.
+
+\section{Forward Kinematics}
+
+Forward kinematics maps each joint configuration to a visible
+end-effector position:
+
+\[
+x_i = FK(q_i),
+\qquad
+x_i \in \mathbb{R}^{3}.
+\]
+
+The software interface is
+
+\begin{lstlisting}[language=Python]
+def fk_position(q, joint_names):
+    """
+    q: joint configuration, shape (D,)
+    joint_names: MoveIt joint order
+
+    returns:
+        xyz in the fixed-goal reference frame,
+        shape (3,)
+    """
+    raise NotImplementedError("Connect verified robot FK")
+\end{lstlisting}
+
+This interface deliberately hides the robot-specific
+kinematic implementation from the optimizer.
+
+\section{Goal-Inference Model}
+
+Let
+
+\[
+\mathcal G =
+\{G_1,\ldots,G_M\}
+\]
+
+be the possible goals.
+
+Let
+
+\[
+G^*
+\]
+
+be the true target.
+
+A general cost-based observer has the form
+
+\[
+P(G\mid\xi_{0:i})
+\propto
+P(G)
+\exp
+\left(
+-\beta[
+C(\xi_{0:i})
++
+V_G(x_i)
+-
+V_G(x_0)
+]
+\right).
+\]
+
+Because the prefix cost is common to every candidate goal, it
+cancels during normalization.
+
+For the first implementation, use
+
+\[
+V_G(x)
+=
+\|x-G\|_2.
+\]
+
+Then
+
+\[
+P(G\mid x_i)
+=
+\operatorname{softmax}_G
+\left[
+\beta
+(
+\|x_0-G\|
+-
+\|x_i-G\|
+)
++
+\log P(G)
+\right].
+\]
+
+The parameter
+
+\[
+\beta > 0
+\]
+
+controls how strongly progress differences influence the
+observer model.
+
+The implementation uses the smooth distance
+$d_\epsilon(x,G)=\sqrt{\|x-G\|_2^2+10^{-12}}$ in the same units as the
+goals, and subtracts the maximum logit before exponentiation.
+Priors must be finite, positive, and normalized. This progress-based
+observer is Dragan-inspired; it is not a reproduction of the original
+functional-gradient algorithm or of Bodden et al.'s complete objective.
+
+\section{Legibility Objective}
+
+Let
+
+\[
+p_i =
+P(G^*\mid x_i).
+\]
+
+Normalize time:
+
+\[
+\tau_i =
+\frac{t_i-t_0}
+{t_{N-1}-t_0}.
+\]
+
+Use
+
+\[
+w_i =
+(1-\tau_i)^\gamma.
+\]
+
+The legibility objective is
+
+\[
+L(Q)
+=
+\frac{
+\sum_{i=1}^{N-2}
+w_i p_i
+}{
+\sum_{i=1}^{N-2}w_i
+}.
+\]
+
+The final waypoint is intentionally excluded because arriving at
+the target should not dominate a metric intended to measure
+pre-arrival inference.
+
+The initial waypoint is also excluded because it contains no motion
+evidence. This is a waypoint-weighted score, not a quadrature approximation
+of a time integral. Nonuniform timestamps are supported, but changing
+waypoint density may change the score. Comparisons should use the same
+sampling rule and report any resampling after retiming.
+
+\section{Joint-Space Cost Budget}
+
+Define
+
+\[
+\Delta t_i =
+t_i-t_{i-1}.
+\]
+
+The discrete squared-velocity cost is
+
+\[
+C_q(Q)
+=
+\sum_{i=1}^{N-1}
+\frac{
+\|q_i-q_{i-1}\|_2^2
+}{
+\Delta t_i
+}.
+\]
+
+Let
+
+\[
+C_0 =
+C_q(Q^0).
+\]
+
+The candidate must satisfy
+
+\[
+C_q(Q)
+\le
+\rho C_0,
+\]
+
+where
+
+\[
+\rho =
+\texttt{cost\_ratio}.
+\]
+
+The value of $\rho$ should be experimentally calibrated rather
+than copied blindly from prior work.
+
+\section{Regularization}
+
+To prevent unnecessary internal joint movement, define
+
+\[
+D(Q,Q^0)
+=
+\frac{1}{(N-2)d}
+\sum_{i=1}^{N-2}
+\|q_i-q_i^0\|_2^2.
+\]
+
+The objective minimized numerically is
+
+\[
+J(Q)
+=
+-L(Q)
++
+\lambda_DD(Q,Q^0).
+\]
+
+\subsection{Hard Local Deviation Limits}
+
+The soft penalty $D$ does not enforce a local bound. The integrated prototype
+therefore additionally requires a finite positive vector $\delta\in\mathbb R^d$:
+\[
+ |q_{ij}-q^0_{ij}|\le\delta_j,
+ \qquad i=1,\ldots,N-2,\quad j=1,\ldots,d.
+\]
+SLSQP bounds intersect these local intervals with the supplied joint limits.
+Values use the corresponding joint's units (radians for revolute joints,
+metres for prismatic joints); continuous joints require explicitly chosen
+unwrapped intervals. No robot-specific default bounds are assumed.
+
+\section{Complete Optimization Problem}
+
+The proposed optimization is
+
+\[
+\begin{aligned}
+Q^*
+=
+\arg\min_Q
+\quad&
+-L(Q)
++
+\lambda_DD(Q,Q^0)
+\\
+\text{subject to}\quad
+&
+q_0=q_0^0,
+\\
+&
+q_{N-1}=q_{N-1}^0,
+\\
+&
+q^{\min}\le q_i\le q^{\max},
+\\
+&
+|q_{ij}-q^0_{ij}|\le\delta_j,
+\\
+&
+|\dot q_i|
+\le
+\dot q^{\max},
+\\
+&
+|\ddot q_i|
+\le
+\ddot q^{\max},
+\\
+&
+C_q(Q)
+\le
+\rho C_q(Q^0),
+\\
+&
+Q\in\mathcal Q_{\mathrm{free}}.
+\end{aligned}
+\]
+
+In the first implementation, membership of
+$\mathcal Q_{\mathrm{free}}$ must be verified after numerical optimization
+and retiming using a robot-specific MoveIt path/collision validator.
+That validator is not implemented by this prototype: its interface raises
+\texttt{NotImplementedError}. Linear densification is a diagnostic aid and
+does not establish continuous collision freedom.
+
+Optional velocity and acceleration bounds constrain finite differences:
+\[
+ v_i=\frac{q_{i+1}-q_i}{t_{i+1}-t_i},\qquad
+ a_i=\frac{v_i-v_{i-1}}
+ {\tfrac12[(t_{i+1}-t_i)+(t_i-t_{i-1})]}.
+\]
+These checks do not certify controller interpolation, jerk, endpoint
+derivatives, or dynamic feasibility. Unconfigured dynamic checks are
+reported as unassessed, not as successful. Retiming must rebuild derivatives;
+if it changes positions or sampling, repeat geometric, task, local-deviation,
+and motion-budget checks on an explicitly defined comparison grid.
+
+Numerical acceptance requires solver success, finite correctly shaped
+output, independently checked bounds and cost budget, and the configured
+minimum improvement in $L$. The solver tolerance is not a physical safety
+tolerance. The default postcheck tolerance is $10^{-7}$ in joint/dynamic
+units; the cost tolerance is $10^{-7}\max(1,\rho C_0)$.
+Invalid solver output is rejected even if a diagnostic baseline fallback
+would otherwise satisfy all inequalities.
+
+\section{Implementation}
+
+The complete optimizer used by this document is embedded below.
+
+\lstinputlisting[
+    language=Python,
+    caption={optimizer\_core.py}
+]{../../experimental/legibility_optimizer/optimizer_core.py}
+
+\section{ROS Adapter}
+
+The adapter is intentionally separated from the optimizer. Repository
+evidence supports a ROS~1 message interface, but not a concrete installed
+MoveIt version or robot-specific kinematic API. The report's publishing node
+is adapted into a read-only function taking a baseline, goal set, and target
+from one trial together. It retains joint names and nominal seconds, checks
+the explicit FK/goal frame labels, rejects unsupported multi-DOF paths, and
+returns a diagnostic candidate. It creates no publishers or controllers and
+does not reuse stale velocity, acceleration, or effort fields.
+
+\lstinputlisting[
+    language=Python,
+    caption={ros1\_adapter.py: offline trajectory extraction and optimization}
+]{../../experimental/legibility_optimizer/ros1_adapter.py}
+
+\lstinputlisting[
+    language=Python,
+    caption={robot\_interfaces.py: missing robot integrations fail explicitly}
+]{../../experimental/legibility_optimizer/robot_interfaces.py}
+
+\section{Unit Tests}
+
+\lstinputlisting[
+    language=Python,
+    caption={test\_optimizer\_core.py}
+]{../../tests/experimental/test_optimizer_core.py}
+
+\lstinputlisting[language=Python,caption={ROS message adapter tests}]
+{../../tests/experimental/test_ros1_adapter.py}
+
+\lstinputlisting[language=Python,caption={Execution isolation tests}]
+{../../tests/experimental/test_no_execution.py}
+
+\section{Verification Plot}
+
+The primary numerical diagnostic is a plot of
+
+\[
+P(G^*\mid\xi_{0:t})
+\]
+
+for the baseline and optimized trajectory.
+
+\begin{lstlisting}[language=Python]
+plt.plot(
+    time_baseline,
+    probability_baseline,
+    label="MoveIt baseline",
+)
+
+plt.plot(
+    time_candidate,
+    probability_candidate,
+    label="Legibility candidate",
+)
+
+plt.xlabel("Normalized trajectory time")
+
+plt.ylabel("P(true goal)")
+plt.ylim(0.0, 1.0)
+plt.legend()
+plt.show()
+\end{lstlisting}
+
+The runnable companion demo uses a synthetic identity FK, writes CSV/NPZ/JSON
+diagnostics, and optionally saves the probability and path plots. Its numerical
+scores are not evidence of robot validity or human intent recognition.
+\lstinputlisting[language=Python,caption={Offline demo and verification plot}]
+{../../experimental/legibility_optimizer/demo.py}
+
+\section{MoveIt Validation}
+
+An optimization result must not be interpreted as executable
+merely because the numerical solver reports success.
+
+The candidate must subsequently be checked for:
+
+\begin{enumerate}
+    \item preserved start configuration;
+    \item preserved target configuration;
+    \item joint-position limits;
+    \item velocity and acceleration limits;
+    \item self collision;
+    \item environmental collision;
+    \item task constraints;
+    \item valid trajectory timing;
+    \item controller compatibility.
+\end{enumerate}
+
+The trajectory should be tested in simulation before physical
+execution.
+
+\section{Repository Reuse}
+
+The report's highest-priority conceptual reference implementation is
+
+\begin{verbatim}
+https://github.com/uwgraphics/trajectoryoptimizer-public
+\end{verbatim}
+
+Important locations are
+
+\begin{verbatim}
+opt_example.py
+trajopt/robot/builtinRobots.py
+trajopt/spacetime/builtinObjectives.py
+trajopt/spacetime/objective.py
+trajopt/spacetime/builtinConstraints.py
+trajopt/spacetime/constraint.py
+trajopt/solver/slsqp.py
+trajopt/solver/solverInterface.py
+docs/TR1833.pdf
+
+\end{verbatim}
+
+Its conceptual separation among robot model, objectives,
+constraints, and solver is useful, but the old Python-2
+implementation should not automatically become a dependency of
+the new ROS system. No code from these third-party repositories is copied
+or vendored in this integration. Any future reuse requires checking the
+license of the exact upstream revision and retaining required notices.
+
+Other investigated repositories are:
+
+\begin{verbatim}
+https://github.com/khoilsr/hrc_legible_motion_generation
+
+https://github.com/shiwenli0908/Legibility-Modulator
+
+https://github.com/isir-socialrobotics/legibot
+
+https://github.com/munawarkazmi/legibility-bounds
+\end{verbatim}
+
+\section{Experimental Parameters}
+
+The first parameters to sweep are
+
+\[
+\rho
+\in
+\{1.00,1.05,1.10,1.20,1.30\}
+\]
+
+and
+
+\[
+\gamma
+\in
+\{0,1\}.
+\]
+
+The parameter $\beta$ should also be evaluated because it
+controls the confidence of the model observer.
+
+These are engineering test ranges and not claims about optimal
+human perception.
+
+\section{Lab Validation Checklist}
+
+Before physical execution:
+
+\begin{enumerate}
+
+    \item load a saved MoveIt baseline;
+    \item verify joint-name ordering;
+    \item verify timestamps;
+    \item verify FK against MoveIt/RViz;
+    \item verify goal positions and FK use the same frame;
+    \item optimize one target;
+    \item inspect the end-effector path;
+    \item inspect the legibility probability curve;
+    \item check the cost ratio;
+    \item run MoveIt collision/path validation;
+    \item retime the trajectory;
+    \item revalidate the retimed trajectory;
+    \item execute in simulation;
+    \item execute on hardware at conservative speed;
+    \item record commanded and measured joint states.
+\end{enumerate}
+
+\section{Implementation Timeline}
+
+The following preserves the report's proposed schedule, not a record of
+completed robot integration or experiments.
+
+\begin{lstlisting}
+gantt
+    title Legibility Optimizer Integration
+    dateFormat YYYY-MM-DD
+
+    section Core
+    Mathematical formulation
+        :done, math, 2026-10-14, 1d
+
+    Core optimizer + tests
+        :core, after math, 1d
+
+    section Robot Integration
+    Wire actual FK
+        :fk, after core, 1d
+
+    Parse MoveIt trajectory
+        :io, after core, 1d
+
+    MoveIt path validation
+        :valid, after fk, 1d
+
+    Trajectory retiming
+        :retime, after valid, 1d
+
+    section Evaluation
+    RViz / simulation tests
+        :sim, after retime, 1d
+
+    cost_ratio sweep
+        :sweep, after sim, 1d
+
+    first physical tests
+        :robot, after sweep, 1d
+
+    participant pilot
+        :pilot, after robot, 2d
+\end{lstlisting}
+
+\section{Limitations}
+
+The mathematical observer is a model of human inference, not a
+measurement of human inference.
+
+A larger value of $L(Q)$ therefore means only that the candidate
+is more legible according to the selected observer model.
+
+Human-subject evaluation remains necessary to determine whether
+the modified robot motion actually allows people to identify the
+target earlier or more accurately.
+
+The first optimizer also uses only end-effector position.
+Future work may incorporate end-effector orientation, velocity,
+observer viewpoint, learned perception models, or alternative
+intent-expressiveness formulations.
+
+\section{Conclusion}
+
+The key architectural decision is to optimize the robot in
+joint space while evaluating communicative intent through
+forward kinematics in task space.
+
+This keeps the trajectory physically meaningful to the robot
+while allowing the legibility objective to reason about the
+motion that a human observer actually sees.
+
+The resulting Legibility Optimizer remains a post-planning
+module:
+
+\[
+\text{baseline planning}
+\rightarrow
+\text{legibility optimization}
+\rightarrow
+\text{retiming}
+\]
+\[
+\longrightarrow
+\text{robot validation}
+\rightarrow
+\text{explicit execution}.
+  \]
+
+  \begin{thebibliography}{9}
+
+  \bibitem{dragan2013}
+  A. Dragan and S. Srinivasa,
+  ``Generating Legible Motion,''
+  Robotics: Science and Systems,
+  2013.
+  doi:10.15607/RSS.2013.IX.024.
+
+  \bibitem{bodden2018}
+  C. Bodden, D. Rakita, B. Mutlu, and M. Gleicher,
+  ``A Flexible Optimization-Based Method for Synthesizing
+  Intent-Expressive Robot Arm Motion,''
+  International Journal of Robotics Research,
+  vol. 37, no. 11,
+  2018.
+  doi:10.1177/0278364918792295.
+
+  \bibitem{amirian2024}
+  J. Amirian, M. Abrini, and M. Chetouani,
+  ``Legibot: Generating Legible Motions for Service Robots
+  Using Cost-Based Local Planners,''
+  arXiv:2404.05100,
+  2024.
+
+  \end{thebibliography}
+
+  \end{document}

@@ -40,3 +40,18 @@ roslaunch ur_robot_driver ur5e_bringup.launch robot_ip:=<IP>
 roslaunch ur5e_moveit_config moveit_planning_execution.launch
 roslaunch hri_legible_motion hri.launch participant:=P01
 ```
+
+## Experimental FK-based optimizer
+
+The supplied UD5 research report, repaired LaTeX manuscript, standalone optimizer,
+offline ROS 1 trajectory adapter and unit tests are in
+[`docs/research`](docs/research/README.md). The prototype optimizes interior joint
+positions while evaluating goal inference through injected forward kinematics.
+It is separate from the existing nodes, launch files and recorded-pose controller
+tool. Numerical acceptance is not physical validation, and it never executes a
+trajectory. UD5 is not assumed to be the UR5e described by this scaffold.
+
+See the [integration notes](docs/research/integration.md) for the missing baseline
+planner, actual robot FK, retiming, collision validation and explicit execution
+requirements, and the [research README](docs/research/README.md) for dependencies,
+test commands and manuscript build instructions.

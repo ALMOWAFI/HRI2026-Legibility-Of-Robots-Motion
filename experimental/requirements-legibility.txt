@@ -1,0 +1,6 @@
+# Isolated research environment; deliberately not added to catkin runtime dependencies.
+# Python >= 3.8. Tested versions are recorded in docs/research/README.md.
+numpy>=1.19.5,<3
+scipy>=1.5.4,<2
+# Tests use Python's standard-library unittest; no pytest dependency.
+# Optional plot output: install matplotlib>=3.3 separately.
