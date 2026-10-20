@@ -23,15 +23,14 @@ This starts the layout publisher, RRT planner, FK optimizer and existing display
 It starts no motion executor. First test non-executing requests with:
 
 ```bash
-# Separate terminal; subscribe before sending requests:
-rostopic echo /legibility/trajectory_proposal
-# Another terminal:
-rosrun hri_legibility_preview send_trial.py \
-  --trial-id lab-baseline-001 --target-id 0 --condition baseline
-# Wait for completion, then:
-rosrun hri_legibility_preview send_trial.py \
-  --trial-id lab-legible-001 --target-id 0 --condition legible
+# Another sourced terminal; run one check at a time:
+rosrun hri_legibility_preview check_pipeline.py --target-id 0 --condition baseline
+rosrun hri_legibility_preview check_pipeline.py --target-id 0 --condition legible
 ```
+
+The check verifies subscriptions, types and actual matching trial messages before
+printing `PASS`. Layout data is latched; trajectory messages arrive per trial,
+so these topics are normally quiet while idle. The check requests no motion.
 
 Both accepted conditions publish a `TrajectoryProposal`. The baseline is
 RRT-Connect, not necessarily a straight Cartesian reach. Legible trials require
