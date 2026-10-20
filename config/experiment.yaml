@@ -44,4 +44,31 @@ safety:
   start_tolerance_deg: 0.6    # robot must be this close to start_joints before a reach
   max_direct_move_deg: 30.0   # unplanned joint moves (e.g. to start) only if every joint changes less
 
-experiment: {}    # participant_id, output_dir, button mapping, conditions, targets, repeats
+# Precomputed reaches (tools/precompute_trajectories.py), replayed unchanged for every participant.
+trajectories: config/trajectories.npz   # relative to the package
+
+experiment:
+  output_dir: ~/hri_data       # <output_dir>/<participant_id>/: session.yaml, trials.csv, choices.csv, session.bag
+  # /button_press value -> block id. Buttons are numbered left to right as the participant
+  # sees them; the participant faces the robot, so their leftmost cube is B4.
+  button_to_block: [3, 2, 1, 0]
+  # Peak lateral deviation (m) logged as TrialInfo.bend; the path itself comes from the trajectory file.
+  bend: {predictable: 0.0, legible: 0.20}
+  # Bend direction per target (+1 = +y, the robot's left). Edge cubes outward, middle cubes
+  # away from the two cubes on the other side (plan §2.2).
+  bend_side: [1, 1, -1, -1]
+  reps_per_block: 4            # each cube this often per main block -> 16 trials per block
+  max_same_in_row: 2
+  # Counterbalancing: block order x colour rotation, balanced list shuffled once with this seed.
+  assignment_seed: 2026
+  colors: [orange, red, yellow, green]   # rotation 0 = the colours in `blocks` above
+  ready_time: 1.0              # s "Get ready" on the screen before the reach
+  score_time: 3.0              # s score on the screen after the reach
+  rating_timeout: 30.0         # s to answer a 1-7 rating, then it is logged empty
+  record_bag: true             # rosbag of the session (plan §2.5)
+  bag_topics: [/joint_states, /tf, /tf_static, /button_press, /choice, /trial_start,
+               /motion_status, /rating, /display, /speed_scaling_factor]
+
+display:
+  fullscreen: true
+  keyboard_buttons: false      # true: keys a s d f also publish /button_press 0-3 (dry runs without buttons)

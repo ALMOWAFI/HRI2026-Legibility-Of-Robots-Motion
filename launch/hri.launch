@@ -1,18 +1,20 @@
 <launch>
   <!-- Start the UR5e stack first (separate terminals):
-         roslaunch ur_robot_driver ur5e_bringup.launch robot_ip:=<ROBOT_IP>
-         roslaunch ur5e_moveit_config moveit_planning_execution.launch
+         ~/scripts/launch_hardware.sh
+         ~/scripts/resend_robot_program.sh      (pendant in Remote Control)
        or, without the robot:
-         roslaunch ur5e_moveit_config demo.launch -->
+         roslaunch ur5e_moveit_config demo.launch   (then sim:=true)
+       Then this file (motion + display), and the experiment node in its own terminal:
+         rosrun hri_legible_motion experiment_node.py P07 -->
   <arg name="config" default="$(find hri_legible_motion)/config/experiment.yaml"/>
-  <arg name="participant" default="P00"/>
+  <arg name="sim" default="false" doc="true: no /speed_scaling_factor check (demo.launch has no UR driver)"/>
 
-  <node pkg="hri_legible_motion" type="motion_node.py" name="motion_node" output="screen">
+  <node pkg="hri_legible_motion" type="motion_node.py" name="motion_node" output="screen" required="true">
     <rosparam command="load" file="$(arg config)"/>
+    <param name="require_speed_scaling" value="$(eval not sim)"/>
   </node>
 
-  <node pkg="hri_legible_motion" type="experiment_node.py" name="experiment_node" output="screen">
+  <node pkg="hri_legible_motion" type="display_node.py" name="display_node" output="screen">
     <rosparam command="load" file="$(arg config)"/>
-    <param name="participant_id" value="$(arg participant)"/>
   </node>
 </launch>

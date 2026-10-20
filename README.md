@@ -42,8 +42,13 @@ Claude Code is blocked from running it (`.claude/hooks/block_robot_motion.py`).
 ## Layout
 | Path | Purpose |
 |---|---|
-| `scripts/motion_node.py` | Motion/planning node |
-| `scripts/experiment_node.py` | Experiment/game node |
+| `scripts/motion_node.py` | Replays the precomputed reaches, status, return to start |
+| `scripts/experiment_node.py` | Session state machine, buttons, scoring, ratings, CSV + rosbag |
+| `scripts/display_node.py` | Participant monitor (choice, score, rating prompt) + 1-7 keypad |
+| `src/hri_legible_motion/experiment.py` | Counterbalancing, trial schedule, measures (f, score, ...), CSV (no ROS) |
+| `src/hri_legible_motion/trajectories.py` | Save/load the precomputed reaches with a hash (no ROS) |
+| `tools/precompute_trajectories.py` | Plan + check all 8 reaches once, save `config/trajectories.npz` |
+| `test/` | Offline tests: `python3 -m unittest discover -s test` |
 | `src/hri_legible_motion/legibility.py` | Planner + legibility optimizer |
 | `msg/TrialInfo.msg` | Experiment → motion: trial id, target, condition, bend |
 | `msg/ChoiceEvent.msg` | Participant choice change |
@@ -62,15 +67,37 @@ Claude Code is blocked from running it (`.claude/hooks/block_robot_motion.py`).
 |---|---|---|
 | `/trial_start` | `TrialInfo` | experiment → motion |
 | `/motion_status` | `std_msgs/String` (executing / done / failed / home) | motion → experiment |
-| `/button_press` | `std_msgs/Int32` (block id 0–3) | buttons → experiment |
+| `/motion_home` | `std_msgs/Empty` | experiment → motion (go to the start pose) |
+| `/button_press` | `std_msgs/Int32` (button 0–3, left to right as the participant sees them) | buttons → experiment |
 | `/choice` | `ChoiceEvent` | experiment → logging |
+| `/display` | `std_msgs/String` (JSON) | experiment → display |
+| `/rating` | `std_msgs/Int32` (1–7) | display keypad → experiment |
 
 UR5e side (driver + MoveIt): `/joint_states`, `/tf` (`base_link` → `tool0`),
 `/scaled_pos_joint_traj_controller/follow_joint_trajectory`, `/move_group`.
 
-## Run (once implemented)
+## Precompute the reaches (once, and after any layout / timing change)
+With MoveIt running (robot stack, or `roslaunch ur5e_moveit_config demo.launch`):
 ```
-roslaunch ur_robot_driver ur5e_bringup.launch robot_ip:=<IP>
-roslaunch ur5e_moveit_config moveit_planning_execution.launch
-roslaunch hri_legible_motion hri.launch participant:=P01
+python3 tools/precompute_trajectories.py        # plans, checks, RViz preview, saves config/trajectories.npz
 ```
+No robot motion. Saves `predictable_0..3` and `legible_0..3` with a hash that goes into every
+session log. Until `legibility.legible_path()` exists, only the predictable reaches are saved and
+legible trials fail with a clear message. Rerun after changing cubes, start pose or `motion.duration`.
+
+## Run a session
+After the calibration above, one terminal each:
+```
+roslaunch hri_legible_motion hri.launch                        # motion node + participant display
+rosrun hri_legible_motion experiment_node.py P07               # experimenter terminal
+```
+The experiment node prints the cube colours for this participant (colour rotation), starts the
+rosbag, asks you to type `go` to send the robot to the start pose, then waits for Enter before
+every trial. `q` stops; resume with `--start-trial N`. Output: `~/hri_data/P07/`
+(`session.yaml`, `trials.csv`, `choices.csv`, `session.bag`).
+
+Dry run without the robot: `roslaunch ur5e_moveit_config demo.launch`, then
+`roslaunch hri_legible_motion hri.launch sim:=true`, and set `display.keyboard_buttons: true`
+to use keys a s d f as the four buttons. Ratings are keys 1-7 on the display window.
+
+Offline tests (no ROS): `python3 -m unittest discover -s test`
