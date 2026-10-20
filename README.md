@@ -86,6 +86,12 @@ session log. Until `legibility.legible_path()` exists, only the predictable reac
 legible trials fail with a clear message. Rerun after changing cubes, start pose or `motion.duration`.
 
 ## Run a session
+
+An opt-in [RRT/FK optimizer integration](docs/connected_pipeline.md) is available
+with `experiment_node.py --pipeline --config /absolute/path/to/experiment.yaml`.
+It uses the separate optimizer package and requires a separately implemented
+validator/executor. The cache/replay instructions below remain the original mode.
+
 After the calibration above, one terminal each:
 ```
 roslaunch hri_legible_motion hri.launch                        # motion node + participant display
