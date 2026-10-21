@@ -378,6 +378,7 @@ def planar_legibility(xyz: Array, goals: Sequence[Sequence[float]], target: int,
 class PlanarConfig:
     beta: float = 10.0            # 1/m, observer model of planar_legibility()
     length_ratio: float = 1.10    # legible path at most this much longer than the straight reach
+    efficiency_weight: float = 0.0  # Dragan's lambda: maximize legibility - lambda * (L / L_straight - 1)
     n_terms: int = 6              # sine terms per axis: shape freedom (more = wigglier)
     smooth_weight: float = 1e-3   # penalty on higher sine terms
     min_radius: float = 0.27      # m from the base axis: closer, the arm cannot point straight down
@@ -447,7 +448,9 @@ def optimize_planar_reach(times: Array, xyz: Array, goals: Sequence[Sequence[flo
     freq2 = np.tile(np.arange(1, K + 1) ** 2, 2)
 
     def objective(c):
-        return -planar_legibility(timed(c), goals, target, config.beta) + config.smooth_weight * float(freq2 @ c ** 2)
+        extra = length(geometry(c)) / straight_len - 1.0
+        return (-planar_legibility(timed(c), goals, target, config.beta) + config.efficiency_weight * extra
+                + config.smooth_weight * float(freq2 @ c ** 2))
 
     def constraints(c):
         g = geometry(c)

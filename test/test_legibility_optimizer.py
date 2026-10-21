@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Offline unit tests for legibility.py: python3 -m unittest discover -s test"""
+import dataclasses
 import os
 import sys
 import unittest
@@ -134,6 +135,13 @@ class TestPlanarOptimizer(unittest.TestCase):
             _, _, out = self.reach(target)
             mid = out.xyz[len(out.xyz) // 2] - self.P0
             self.assertEqual(np.sign(np.cross((self.GOALS[target] - self.P0)[:2], mid[:2])), sign)
+
+    def test_higher_lambda_shorter_path(self):
+        t, xyz = L.sample(L.baseline_path(self.P0, self.GOALS[1]), 5.0)
+        ratios = [L.optimize_planar_reach(t, xyz, self.GOALS, 1, dataclasses.replace(self.CFG, efficiency_weight=lam))
+                  .length_ratio for lam in (0.0, 0.3, 1.0)]
+        self.assertGreater(ratios[0], ratios[1])
+        self.assertGreater(ratios[1], ratios[2])
 
     def test_refuses_non_planar(self):
         t, xyz = L.sample(L.baseline_path(self.P0, self.GOALS[0] + [0, 0, 0.05]), 5.0)
