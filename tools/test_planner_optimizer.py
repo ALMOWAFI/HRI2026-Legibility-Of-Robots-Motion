@@ -11,7 +11,7 @@ import sys
 import numpy as np
 import rospy
 from moveit_commander import MoveGroupCommander, roscpp_initialize, roscpp_shutdown
-from hri_legible_motion.legibility import (
+from hri_legible_motion.legibility_optimizer import (
     LegibilityConfig,
     UR5E_JOINTS,
     optimize_legible_trajectory,

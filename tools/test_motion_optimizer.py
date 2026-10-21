@@ -18,7 +18,7 @@ import yaml
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 sys.path.insert(0, os.path.join(ROOT, "src"))  # works without catkin build
-from hri_legible_motion.legibility import (  # noqa: E402
+from hri_legible_motion.legibility_optimizer import (  # noqa: E402
     baseline_path,
     legible_path,
     legibility_score,
