@@ -2,9 +2,10 @@
 """Plan a test reach from the start pose to the hover point above one cube, show it in
 RViz (MotionPlanning > Planned Path) and optionally run it on the UR5e.
 
-usage: test_motion.py <B1..B4 | orange|red|yellow|green | all> [--execute]
+usage: test_motion.py <B1..B4 | orange|red|yellow|green | all> [--legible] [--execute]
 
-Predictable (straight) motion only for now. Tool orientation is kept as at the start pose.
+Supports both predictable (straight) and legible (laterally bent) motion.
+Tool orientation is kept as at the start pose.
 Every trajectory passes hri_legible_motion.safety (workspace, speed, joint jumps) before it
 is shown or sent; --execute also needs a person at an interactive terminal to type 'go'.
 """
@@ -17,26 +18,47 @@ import yaml
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 sys.path.insert(0, os.path.join(ROOT, "src"))  # works without catkin build
-from hri_legible_motion.legibility import baseline_path, sample  # noqa: E402
+from hri_legible_motion.legibility import (  # noqa: E402
+    baseline_path,
+    legible_path,
+    legibility_score,
+    sample,
+)
+from hri_legible_motion import trajectories  # noqa: E402
 from hri_legible_motion.robot import Robot, end_joints  # noqa: E402
 from hri_legible_motion.safety import SafetyError, require_operator  # noqa: E402
 
 CONFIG = os.path.join(ROOT, "config", "experiment.yaml")
 
 
-def plan_reach(robot, cfg, block):
-    m = cfg["motion"]
+def plan_reach(robot, cfg, block, motion="predictable"):
+    m, e = cfg["motion"], cfg["experiment"]
     start = m["start_joints"]
     p0, orientation = robot.fk(start)
     p1 = np.array([block["position"][0], block["position"][1], m["touch_z"] + m["hover_height"]])
-    # Samples are uniform in time under the min-jerk law, so MoveIt only solves IK per sample.
-    times, xyz = sample(baseline_path(p0, p1), m["duration"])
+
+    all_goals = np.array([[b["position"][0], b["position"][1], m["touch_z"] + m["hover_height"]]
+                          for b in cfg["blocks"]])
+
+    if motion == "predictable":
+        path = baseline_path(p0, p1)
+    else:
+        bend = trajectories.bend_vector(p0, p1, e["bend_side"][block["id"]], e["bend"]["legible"])
+        path = legible_path(p0, p1, bend)
+
+    times, xyz = sample(path, m["duration"])
     traj = robot.plan(start, times, xyz, orientation)
-    length = np.linalg.norm(p1 - p0)
+    length = float(np.linalg.norm(np.diff(xyz, axis=0), axis=1).sum())
+    peak_speed = float(np.linalg.norm(np.diff(xyz, axis=0), axis=1).max() / (times[1] - times[0]))
     qd = np.array([p.velocities for p in traj.points])
-    print("Start  [%.3f %.3f %.3f]\nHover  [%.3f %.3f %.3f]  (%s, %s)" % (tuple(p0) + tuple(p1) + (block["name"], block["color"])))
-    print("Straight line %.3f m in %.1f s, peak speed %.2f m/s, %d points, max joint speed %.0f deg/s"
-          % (length, m["duration"], 1.875 * length / m["duration"], len(times), np.degrees(np.abs(qd)).max()))
+
+    score = legibility_score((times, xyz), all_goals, block["id"])
+
+    print("Start  [%.3f %.3f %.3f]" % tuple(p0))
+    print("Hover  [%.3f %.3f %.3f]  (%s, %s, %s)" % (tuple(p1) + (block["name"], block["color"], motion)))
+    print("%s path %.3f m in %.1f s, peak speed %.2f m/s, %d points, max joint speed %.0f deg/s"
+          % (motion.capitalize(), length, m["duration"], peak_speed, len(times), np.degrees(np.abs(qd)).max()))
+    print("Dragan Legibility Score: %.4f" % score)
     return traj
 
 
@@ -48,6 +70,7 @@ def main():
     if len(args) != 1 or (args[0] not in blocks and args[0] != "all"):
         sys.exit(__doc__)
     targets = cfg["blocks"] if args[0] == "all" else [blocks[args[0]]]
+    motion = "legible" if "--legible" in sys.argv else "predictable"
     execute = "--execute" in sys.argv
     if execute and not sys.stdin.isatty():
         sys.exit("--execute needs a person at an interactive terminal.")
@@ -59,7 +82,7 @@ def main():
 
     reaches = []
     for b in targets:
-        traj = plan_reach(robot, cfg, b)
+        traj = plan_reach(robot, cfg, b, motion=motion)
         back = robot.plan_return(end_joints(traj), orientation)  # checked now, replanned after the reach
         print("Return to start: %.1f s\n" % back.points[-1].time_from_start.to_sec())
         reaches.append((b, traj))
@@ -78,7 +101,7 @@ def main():
         robot.move_joints(start, 8.0)
     for b, traj in reaches:
         robot.check_at(start, "the start pose; the planned reach starts there")
-        if not require_operator("Run the predictable reach to %s (%.1f s)?" % (b["color"], m["duration"])):
+        if not require_operator("Run the %s reach to %s (%.1f s)?" % (motion, b["color"], m["duration"])):
             return
         robot.execute(traj)
         print("Reach to %s done." % b["color"])
