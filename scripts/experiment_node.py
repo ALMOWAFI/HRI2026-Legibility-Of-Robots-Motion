@@ -50,10 +50,16 @@ class Aborted(Exception):
 
 
 class ExperimentNode:
-    def __init__(self, participant, start_trial):
+    def __init__(self, participant, start_trial, config=None, pipeline=False):
         self.pkg = rospkg.RosPack().get_path("hri_legible_motion")
-        with open(os.path.join(self.pkg, "config", "experiment.yaml")) as f:
+        self.config_path = os.path.abspath(config or os.path.join(self.pkg, "config", "experiment.yaml"))
+        with open(self.config_path) as f:
             self.cfg = yaml.safe_load(f)
+        self.pipeline = None
+        if pipeline:
+            # Optional dependency: reuse the standalone package; no controller imports.
+            from legibility_ros.experiment_client import ExperimentClient
+            self.pipeline = ExperimentClient(rospy, self.cfg)
         e = self.cfg["experiment"]
         self.e = e
         self.participant = participant
@@ -68,13 +74,16 @@ class ExperimentNode:
                                       e["reps_per_block"], seed, e["max_same_in_row"])
         self.start_trial = start_trial
 
-        traj_path = self.cfg["trajectories"]
-        if not os.path.isabs(traj_path):
-            traj_path = os.path.join(self.pkg, traj_path)
-        self.traj_meta = trajectories.read_meta(traj_path)
-        if abs(self.traj_meta["duration"] - self.duration) > 1e-6:
-            sys.exit("Trajectory file was planned with T = %.2f s, config says %.2f s. Recompute."
-                     % (self.traj_meta["duration"], self.duration))
+        traj_path = None
+        self.traj_meta = {"hash": "live planner/optimizer", "duration": self.duration}
+        if not self.pipeline:
+            traj_path = self.cfg["trajectories"]
+            if not os.path.isabs(traj_path):
+                traj_path = os.path.join(self.pkg, traj_path)
+            self.traj_meta = trajectories.read_meta(traj_path)
+            if abs(self.traj_meta["duration"] - self.duration) > 1e-6:
+                sys.exit("Trajectory file was planned with T = %.2f s, config says %.2f s. Recompute."
+                         % (self.traj_meta["duration"], self.duration))
 
         self.out_dir = os.path.join(os.path.expanduser(e["output_dir"]), participant)
         if os.path.exists(os.path.join(self.out_dir, "trials.csv")) and start_trial == 0:
@@ -89,11 +98,13 @@ class ExperimentNode:
         self.statuses = queue.Queue()
         self.ratings = queue.Queue()
         self.display_pub = rospy.Publisher("/display", String, queue_size=1, latch=True)
-        self.trial_pub = rospy.Publisher("/trial_start", TrialInfo, queue_size=1)
-        self.home_pub = rospy.Publisher("/motion_home", Empty, queue_size=1)
+        if not self.pipeline:
+            self.trial_pub = rospy.Publisher("/trial_start", TrialInfo, queue_size=1)
+            self.home_pub = rospy.Publisher("/motion_home", Empty, queue_size=1)
         self.choice_pub = rospy.Publisher("/choice", ChoiceEvent, queue_size=10)
         rospy.Subscriber("/button_press", Int32, self.on_button)
-        rospy.Subscriber("/motion_status", String, lambda m: self.statuses.put((m.data, rospy.get_time())))
+        if not self.pipeline:
+            rospy.Subscriber("/motion_status", String, lambda m: self.statuses.put((m.data, rospy.get_time())))
         rospy.Subscriber("/rating", Int32, lambda m: self.ratings.put(m.data))
         self.bag = None
 
@@ -106,6 +117,11 @@ class ExperimentNode:
                 "schedule_seed": seed, "duration_T": self.duration,
                 "trajectory_file": traj_path, "trajectory_hash": self.traj_meta["hash"],
                 "button_to_block": self.button_to_block, "n_trials": len(self.trials), "notes": ""}
+        info["config_file"] = self.config_path
+        if self.pipeline:
+            info.update(backend="rrt_fk_optimizer", pipeline_session_id=self.pipeline.session_id,
+                        config_sha256=self.pipeline.config_sha256,
+                        timing="required duration validated downstream; measured onset/completion")
         if self.start_trial:
             path = os.path.join(self.out_dir, "session_resumed_at_%d.yaml" % self.start_trial)
             info["resumed_at_trial"] = self.start_trial
@@ -116,8 +132,13 @@ class ExperimentNode:
         if not self.e.get("record_bag", True):
             return
         name = "session.bag" if not self.start_trial else "session_from_%d.bag" % self.start_trial
+        topics = list(self.e["bag_topics"])
+        if self.pipeline:
+            topics += ["/hri/block_layout", "/legibility/trial_request", "/legibility/baseline",
+                       "/legibility/optimized_candidate", "/legibility/trajectory_proposal",
+                       "/legibility/status", "/legibility/validated_trajectory", "/legibility/motion_feedback"]
         self.bag = subprocess.Popen(["rosbag", "record", "-O", os.path.join(self.out_dir, name)]
-                                    + list(self.e["bag_topics"]),
+                                    + sorted(set(topics)),
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         rospy.loginfo("Recording %s", name)
 
@@ -163,6 +184,8 @@ class ExperimentNode:
     # --- waiting ---------------------------------------------------------
     def wait_status(self, wanted, timeout):
         """(status, stamp) of the first status in `wanted`, or (None, None) after timeout."""
+        if self.pipeline:
+            return self.pipeline.wait_status(wanted, timeout)
         deadline = rospy.get_time() + timeout
         while not rospy.is_shutdown() and rospy.get_time() < deadline:
             try:
@@ -194,10 +217,18 @@ class ExperimentNode:
             if not require_operator("Send the robot to the start pose?"):
                 raise Aborted()
             self.drain_statuses()
-            self.home_pub.publish(Empty())
+            if self.pipeline:
+                try:
+                    self.pipeline.request_motion("home", operator_confirmed=True)
+                except RuntimeError as error:
+                    raise Aborted(str(error))
+            else:
+                self.home_pub.publish(Empty())
             status, _ = self.wait_status({"home", "failed"}, STATUS_TIMEOUT["home"])
             if status == "home":
                 return
+            if self.pipeline:
+                raise Aborted("Home not verified; inspect the downstream executor before any further command.")
             print("Robot did not reach the start pose (%s). Check the motion_node terminal." % (status or "timeout"))
 
     def drain_statuses(self):
@@ -209,6 +240,25 @@ class ExperimentNode:
         """Returns the TrialRecord; robot is home afterwards unless status is failed/timeout."""
         announced = trial["phase"] == "announced"
         target = trial["target_id"]
+        pipeline_attempt = None
+        if self.pipeline:
+            self.show("text", "Please wait", "Preparing the next trial.")
+            # Planning/optimization latency never starts the participant's reach clock.
+            proposal = self.pipeline.prepare(trial)
+            validation = self.pipeline.validate()
+            pipeline_attempt = dict(trial_id=trial["trial_id"],
+                                    pipeline_trial_id=proposal.source.trial_id,
+                                    validation_id=validation.validation_id,
+                                    config_sha256=proposal.source.config_sha256,
+                                    layout_id=proposal.source.layout.layout_id)
+            # Save the exact handoff even if rosbag recording is disabled.
+            proposal_path = os.path.join(self.out_dir, proposal.source.trial_id + ".proposal")
+            with open(proposal_path, "wb") as stream:
+                proposal.serialize(stream)
+            with open(os.path.join(self.out_dir, "pipeline_attempts.jsonl"), "a") as stream:
+                stream.write(json.dumps(dict(pipeline_attempt, event="prepared")) + "\n")
+            if self.prompt("Validated trial prepared. Type 'go' to request this reach (q = quit): ") != "go":
+                raise Aborted("Trial not explicitly authorized.")
         if announced:
             self.show("text", "Watch", "The robot will reach for %s." % self.describe(target))
             rospy.sleep(3.0)
@@ -221,12 +271,21 @@ class ExperimentNode:
         with self.lock:
             self.record = record = E.TrialRecord(trial, now)
             self.accepting = not announced
+            record.pipeline_attempt = pipeline_attempt
         if not announced:
             self.show("reach")
-        msg = TrialInfo(trial_id=trial["trial_id"], target_id=target, condition=trial["motion"],
-                        bend=float(self.e["bend"][trial["motion"]]))
-        msg.header.stamp = rospy.Time.from_sec(now)
-        self.trial_pub.publish(msg)
+        if self.pipeline:
+            try:
+                self.pipeline.request_motion("run", operator_confirmed=True)
+            except RuntimeError as error:
+                with self.lock:
+                    self.accepting = False
+                raise Aborted(str(error))
+        else:
+            msg = TrialInfo(trial_id=trial["trial_id"], target_id=target, condition=trial["motion"],
+                            bend=float(self.e["bend"][trial["motion"]]))
+            msg.header.stamp = rospy.Time.from_sec(now)
+            self.trial_pub.publish(msg)
 
         status, t = self.wait_status({"executing", "failed"}, STATUS_TIMEOUT["executing"])
         if status == "executing":
@@ -239,26 +298,43 @@ class ExperimentNode:
         if record.status != "done":
             self.show("text", "Short pause", "Please wait a moment.")
             return record
+        if self.pipeline:
+            # Use measured arm onset-to-completion for scoring, not planner timestamps.
+            record.measured_duration = record.t_done - record.t_start
+            if record.measured_duration <= 0:
+                record.status = "invalid_motion_timing"
+                return record
 
         if announced:
             self.show("rating", "How natural did this motion look?",
                       "1 = not at all natural   ...   7 = very natural")
             record.naturalness = self.wait_rating(float(self.e["rating_timeout"]))
         else:
-            m = record.measures(self.duration)
+            m = record.measures(getattr(record, "measured_duration", self.duration))
             self.show("score", "Score: %d / 10" % m["score"], choice_block=m["final_choice"])
             rospy.sleep(float(self.e["score_time"]))
             self.show("rating", "How confident were you in your final choice?",
                       "1 = not at all confident   ...   7 = completely confident")
             record.confidence = self.wait_rating(float(self.e["rating_timeout"]))
 
+        if self.pipeline:
+            # The executor does not automatically return after a reach.
+            # run() logs the completed reach before prompting for this separate move.
+            return record
         status, _ = self.wait_status({"home", "failed"}, STATUS_TIMEOUT["home"])
         if status != "home":
             record.status = "return_" + (status or "timeout")
         return record
 
     def log_trial(self, record):
-        row = self.log.write(record, self.participant, self.duration, self.blocks, self.colors)
+        row = self.log.write(record, self.participant, getattr(record, "measured_duration", self.duration),
+                             self.blocks, self.colors)
+        if self.pipeline:
+            with open(os.path.join(self.out_dir, "pipeline_attempts.jsonl"), "a") as stream:
+                stream.write(json.dumps(dict(record.pipeline_attempt, event="result",
+                                             t_trial_start=record.t_trial_start, t_start=record.t_start,
+                                             t_done=record.t_done, status=record.status,
+                                             measured_duration=getattr(record, "measured_duration", None))) + "\n")
         if record.trial["phase"] == "announced":
             extra = "naturalness %s" % row["naturalness"]
         elif row.get("f") is not None:
@@ -298,6 +374,11 @@ class ExperimentNode:
                            self.describe(trial["target_id"])))
             record = self.run_trial(trial)
             self.log_trial(record)
+            if self.pipeline:
+                if record.status != "done":
+                    # Do not issue a home command after an ambiguous timeout/failure.
+                    raise Aborted("Trial failed; inspect executor/robot state before restarting.")
+                self.go_home()
             if record.status != "done":
                 print("Trial not completed (%s). Check the robot and the motion_node terminal." % record.status)
                 self.go_home()
@@ -314,14 +395,17 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("participant", help="e.g. P07")
     ap.add_argument("--start-trial", type=int, default=0, help="resume at this trial index")
+    ap.add_argument("--config", help="same experiment YAML used by planner, optimizer and display")
+    ap.add_argument("--pipeline", action="store_true",
+                    help="use RRT/FK pipeline and separate validator/executor; no legacy motion_node")
     args = ap.parse_args(rospy.myargv()[1:])
     if not sys.stdin.isatty():
         sys.exit("experiment_node needs the experimenter at an interactive terminal (use rosrun, not roslaunch).")
-    node = ExperimentNode(args.participant, args.start_trial)
+    node = ExperimentNode(args.participant, args.start_trial, args.config, args.pipeline)
     try:
         node.run()
-    except (Aborted, KeyboardInterrupt, EOFError):
-        print("\nSession stopped. Resume with --start-trial <next trial index>.")
+    except (Aborted, RuntimeError, KeyboardInterrupt, EOFError) as error:
+        print("\nSession stopped: %s. Inspect state before resuming with --start-trial." % error)
     finally:
         node.stop_bag()
 
