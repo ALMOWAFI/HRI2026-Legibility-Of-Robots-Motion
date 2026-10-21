@@ -8,15 +8,15 @@ on the lab computer.
 **Start here:** [connected pipeline lab guide](docs/connected_pipeline.md).
 Use this repository's `integration/rrt-optimizer-session` branch with the optimizer
 repository's `integration/preview-planner-optimizer` branch. The changes are in
-draft PRs. Numerical preparation is tested offline; physical validation/execution
-providers and live ROS verification are still required.
+draft PRs. The companion package now includes a separate validation/execution
+node, disabled for motion by default. Live ROS and hardware verification remain.
 
 ## Connected lab architecture
 ```
 Shared config → block layout publisher → RRT planner
 Experiment node --pipeline → trial request ─┘
 RRT baseline → FK optimizer / baseline bypass → trajectory proposal
-  → external retiming + physical validation → explicit execution
+  → downstream retiming + sampled model/scene checks → confirmed execution
   → correlated measured motion feedback → Experiment node
 Participant → Buttons → /button_press → Experiment node → choices + timestamps + trial data (CSV)
 ```
@@ -112,8 +112,9 @@ legible trials fail with a clear message. Rerun after changing cubes, start pose
 
 An opt-in [RRT/FK optimizer integration](docs/connected_pipeline.md) is available
 with `experiment_node.py --pipeline --config /absolute/path/to/experiment.yaml`.
-It uses the separate optimizer package and requires a separately implemented
-validator/executor. The cache/replay instructions below remain the original mode.
+It uses the separate optimizer package and its opt-in downstream node. Complete
+the connected guide's lab checks before enabling execution. The cache/replay
+instructions below remain the original mode.
 
 After the calibration above, one terminal each:
 ```

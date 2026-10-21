@@ -136,7 +136,7 @@ class ExperimentNode:
         if self.pipeline:
             topics += ["/hri/block_layout", "/legibility/trial_request", "/legibility/baseline",
                        "/legibility/optimized_candidate", "/legibility/trajectory_proposal",
-                       "/legibility/status", "/legibility/motion_feedback"]
+                       "/legibility/status", "/legibility/validated_trajectory", "/legibility/motion_feedback"]
         self.bag = subprocess.Popen(["rosbag", "record", "-O", os.path.join(self.out_dir, name)]
                                     + sorted(set(topics)),
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -228,7 +228,7 @@ class ExperimentNode:
             if status == "home":
                 return
             if self.pipeline:
-                raise Aborted("Home not verified; inspect the external executor before any further command.")
+                raise Aborted("Home not verified; inspect the downstream executor before any further command.")
             print("Robot did not reach the start pose (%s). Check the motion_node terminal." % (status or "timeout"))
 
     def drain_statuses(self):
@@ -397,7 +397,7 @@ def main():
     ap.add_argument("--start-trial", type=int, default=0, help="resume at this trial index")
     ap.add_argument("--config", help="same experiment YAML used by planner, optimizer and display")
     ap.add_argument("--pipeline", action="store_true",
-                    help="use standalone RRT/FK pipeline and external validator/executor; no motion_node")
+                    help="use RRT/FK pipeline and separate validator/executor; no legacy motion_node")
     args = ap.parse_args(rospy.myargv()[1:])
     if not sys.stdin.isatty():
         sys.exit("experiment_node needs the experimenter at an interactive terminal (use rosrun, not roslaunch).")

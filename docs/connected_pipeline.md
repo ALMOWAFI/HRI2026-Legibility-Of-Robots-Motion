@@ -19,8 +19,8 @@ roslaunch hri_legibility_preview group_pipeline.launch \
   experiment_config:="$HRI_CONFIG"
 ```
 
-This starts the layout publisher, RRT planner, FK optimizer and existing display.
-It starts no motion executor. First test non-executing requests with:
+This starts the layout publisher, RRT planner, FK optimizer, downstream node and
+existing display. Execution is disabled by default. First test with:
 
 ```bash
 # Another sourced terminal; run one check at a time:
@@ -37,10 +37,25 @@ RRT-Connect, not necessarily a straight Cartesian reach. Legible trials require
 numerical acceptance; rejection does not silently fall back. Every proposal
 still requires retiming and physical validation.
 
-For a future hardware session, the teammate must implement and validate
-`/legibility/validate_trajectory`, `/legibility/request_motion`, and correlated
-`/legibility/motion_feedback`. Missing providers fail explicitly. After that,
-run in a separate interactive terminal:
+The companion package now implements `/legibility/validate_trajectory`,
+`/legibility/request_motion`, and correlated `/legibility/motion_feedback`.
+Rebuild both packages after pulling: `RequestMotion` now includes operator
+confirmation and a dispatch deadline.
+
+Read-only downstream check, after configuring the real scene:
+
+```bash
+rosrun hri_legibility_preview inspect_execution.py
+rosrun hri_legibility_preview check_pipeline.py --target-id 0 --condition baseline --validate
+rosrun hri_legibility_preview check_pipeline.py --target-id 0 --condition legible --validate
+```
+
+The group's scene helper adds cubes, **not a table**. The actual measured table/
+environment collision geometry, model fingerprint and installed controller checks
+must be supplied before enabling motion. Follow the
+[execution lab guide](https://github.com/ALMOWAFI/The-legibilityOptimizer-HRI2026/blob/integration/preview-planner-optimizer/docs/integration/execution.md).
+After those checks, restart the launch with the reviewed `execution_config` and
+`enable_execution:=true`, then run in a separate interactive terminal:
 
 ```bash
 export HRI_CONFIG="$(rospack find hri_legible_motion)/config/experiment.yaml"
@@ -58,7 +73,9 @@ measured motion onset/completion, never solver completion. Failure or missing
 onset stops the session without automatically issuing another motion.
 
 Session output adds `pipeline_attempts.jsonl`, serialized `.proposal` files, and
-pipeline topics in the bag. Each attempt has a unique ID even for retries or a
+pipeline topics in the bag, including `/legibility/validated_trajectory` for the
+exact retimed path. Keep `record_bag` enabled to retain that path.
+Each attempt has a unique ID even for retries or a
 resumed session; the attempt log binds these IDs to existing scheduled trial
 numbers and timestamps. Existing CSV column schemas remain unchanged.
 
