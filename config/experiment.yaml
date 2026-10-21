@@ -57,15 +57,33 @@ safety:
 # Precomputed reaches (tools/precompute_trajectories.py), replayed unchanged for every participant.
 trajectories: config/trajectories.npz   # relative to the package
 
+# Legible reaches: legibility_optimizer.optimize_planar_reach() turns each predictable reach
+# into a legible one in the same plane (same start, end, height, duration). Used by
+# scripts/legibility_optimizer_node.py (topics, for test_motion.py --legible) and by
+# tools/precompute_trajectories.py (offline, for the study). Workspace box: safety above.
+optimizer:
+  beta: 10.0            # 1/m, observer model of the Dragan score
+  length_ratio: 1.04    # legible path at most 4 % longer than the straight reach: more breaks the
+                        # 60 deg/s joint limit for the cubes at 0.91 m (2026-10-21 layout, 5 s)
+  n_terms: 6            # sine terms per axis (shape freedom)
+  smooth_weight: 0.001  # penalty on higher sine terms
+  min_radius: 0.27      # m from the base axis; closer, the arm cannot point down (planning fails)
+  max_radius: 0.90      # m, reach limit with the pointer down (never stricter than the reach ends)
+  extension_radius: 0.80  # m: beyond this, no farther out than the straight reach (elbow speed)
+  max_coeff: 0.30       # m per sine coefficient
+  maxiter: 200
+  timeout: 60.0         # s test_motion.py --legible waits for the optimizer node
+
 experiment:
   output_dir: ~/hri_data       # <output_dir>/<participant_id>/: session.yaml, trials.csv, choices.csv, session.bag
   # /button_press value -> block id. Buttons are numbered left to right as the participant
   # sees them; the participant faces the robot, so their leftmost cube is B4.
   button_to_block: [3, 2, 1, 0]
-  # Peak lateral deviation (m) logged as TrialInfo.bend; the path itself comes from the trajectory file.
-  bend: {predictable: 0.0, legible: 0.12}   # 12 cm: the most green can do from the start pose (bends toward the base)
-  # Bend direction per target (+1 = +y, the robot's left). Edge cubes outward, middle cubes
-  # away from the two cubes on the other side (plan §2.2).
+  # Nominal peak lateral deviation (m), only logged as TrialInfo.bend. The legible paths come
+  # from the optimizer (section above); their real deviation is in the trajectory file's meta.
+  bend: {predictable: 0.0, legible: 0.12}
+  # Bend direction per target (+1 = +y, the robot's left); also nominal, the optimizer picks the
+  # side itself (edge cubes outward, middle cubes toward the outer neighbour, as below).
   bend_side: [1, 1, -1, -1]
   reps_per_block: 4            # each cube this often per main block -> 16 trials per block
   max_same_in_row: 2

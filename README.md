@@ -50,6 +50,14 @@ The cube spots are fixed relative to the robot, not the table. Each session:
    The cube appears in RViz. If the tip is clearly not ~6 cm above the table top (5 cm + cube
    height), the table height differs: stop and adjust `motion.touch_z`.
 4. Optional check: `python3 tools/test_motion.py yellow` (preview) / `--execute`.
+   Legible reach: start the optimizer in another terminal, then add `--legible`:
+   ```
+   python3 scripts/legibility_optimizer_node.py              # keep running
+   python3 tools/test_motion.py yellow --legible             # preview, then --execute
+   ```
+   test_motion.py publishes the predictable reach on `/hri/predictable_reach`; the optimizer
+   answers with the legible one on `/hri/legible_reach` (both `moveit_msgs/CartesianTrajectory`),
+   which then goes through the same IK and safety checks.
 
 After restarting MoveIt or RViz, `python3 tools/spawn_cubes.py` shows the cubes again
 (no motion). Robot motion always needs a person at the terminal typing `go`;
@@ -63,9 +71,11 @@ Claude Code is blocked from running it (`.claude/hooks/block_robot_motion.py`).
 | `scripts/display_node.py` | Participant monitor (choice, score, rating prompt) + 1-7 keypad |
 | `src/hri_legible_motion/experiment.py` | Counterbalancing, trial schedule, measures (f, score, ...), CSV (no ROS) |
 | `src/hri_legible_motion/trajectories.py` | Legacy trajectory-cache save/load (no ROS) |
-| `tools/precompute_trajectories.py` | Legacy cache-generation tool: 2D reaches in the hover plane, both motion types |
+| `tools/precompute_trajectories.py` | Plans and saves the 8 study reaches (predictable + optimized legible) in the hover plane |
 | `test/` | Offline tests: `python3 -m unittest discover -s test` |
-| `src/hri_legible_motion/legibility.py` | Legacy straight / sine-bend paths and 2D legibility score; the FK optimizer lives in the separate package |
+| `src/hri_legible_motion/legibility_optimizer.py` | Straight path, min-jerk time law, Dragan score; `optimize_planar_reach()` = the legible reaches (fixed height, x-y only); joint-space SLSQP optimizer (not fixed-height) |
+| `src/hri_legible_motion/reach_topic.py` | Reaches as `moveit_msgs/CartesianTrajectory` on `/hri/predictable_reach` / `/hri/legible_reach` |
+| `scripts/legibility_optimizer_node.py` | Predictable reach in, legible reach out (no motion) |
 | `msg/TrialInfo.msg` | Experiment → motion: trial id, target, condition, bend |
 | `msg/ChoiceEvent.msg` | Participant choice change |
 | `config/experiment.yaml` | Block coordinates, robot, trial settings |
@@ -75,7 +85,8 @@ Claude Code is blocked from running it (`.claude/hooks/block_robot_motion.py`).
 | `src/hri_legible_motion/scene.py` | Cubes in the MoveIt scene and as RViz markers |
 | `tools/place_blocks.py` | Session calibration: robot points, you place the cubes |
 | `tools/spawn_cubes.py` | Show the cubes in RViz (no motion) |
-| `tools/test_motion.py` | Straight test reach to one cube |
+| `tools/test_motion.py` | Test reach to one cube: predictable, or `--legible` via the optimizer node |
+| `tools/test_planner_optimizer.py` | Dry run of MoveIt planning + the joint-space optimizer (no motion) |
 | `docs/experiment_plan.md` | Study implementation plan |
 
 ## Existing group topics
@@ -105,8 +116,9 @@ With MoveIt running (robot stack, or `roslaunch ur5e_moveit_config demo.launch`)
 python3 tools/precompute_trajectories.py        # plans, checks, RViz preview, saves config/trajectories.npz
 ```
 No robot motion. Saves `predictable_0..3` and `legible_0..3` with a hash that goes into every
-session log. Until `legibility.legible_path()` exists, only the predictable reaches are saved and
-legible trials fail with a clear message. Rerun after changing cubes, start pose or `motion.duration`.
+session log. The legible reaches come from `optimize_planar_reach()` with the `optimizer` settings
+(the function the optimizer node runs). Rerun after changing cubes, start pose, `motion.duration`
+or `optimizer`, and commit the new file.
 
 ## Legacy mode: run a cached session
 

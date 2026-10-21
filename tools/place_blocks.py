@@ -18,7 +18,7 @@ import yaml
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 sys.path.insert(0, os.path.join(ROOT, "src"))  # works without catkin build
-from hri_legible_motion.legibility import stop_and_go  # noqa: E402
+from hri_legible_motion.legibility_optimizer import stop_and_go  # noqa: E402
 from hri_legible_motion.robot import Robot, end_joints  # noqa: E402
 from hri_legible_motion.safety import SafetyError, require_operator  # noqa: E402
 from hri_legible_motion.scene import set_cubes  # noqa: E402

@@ -28,5 +28,6 @@ catkin_install_python(PROGRAMS
   scripts/motion_node.py
   scripts/experiment_node.py
   scripts/display_node.py
+  scripts/legibility_optimizer_node.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

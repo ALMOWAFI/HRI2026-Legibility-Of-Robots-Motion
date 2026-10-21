@@ -84,7 +84,7 @@ class Robot:
         """From joint dict `start` back to the start pose: optional lift to z = lift_to, then a
         straight line to the start tool position (slow, stop at corners). The end joints are
         checked to be within a small direct move of motion.start_joints."""
-        from hri_legible_motion.legibility import stop_and_go
+        from hri_legible_motion.legibility_optimizer import stop_and_go
         home = self.m["start_joints"]
         p, goal = self.fk(start)[0], self.fk(home)[0]
         points = [p] + ([[p[0], p[1], max(p[2], lift_to)]] if lift_to else []) + [goal]
