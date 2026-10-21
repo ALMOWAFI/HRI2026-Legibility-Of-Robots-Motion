@@ -45,10 +45,10 @@ The cube spots are fixed relative to the robot, not the table. Each session:
    python3 tools/place_blocks.py              # plan + RViz preview, no motion
    python3 tools/place_blocks.py --execute    # robot points at each spot
    ```
-   For each colour the robot stops 3 cm above where the cube's top will be; put the
-   cube under the tool tip (long side pointing back toward the start pose), press Enter. The cube
-   appears in RViz. If the tip is clearly not ~3 cm above the table top, the table
-   height differs: stop and adjust `motion.touch_z`.
+   For each colour the robot stops 5 cm above where the cube's top will be (`setup.point_height`);
+   put the cube under the tool tip (long side pointing back toward the start pose), press Enter.
+   The cube appears in RViz. If the tip is clearly not ~6 cm above the table top (5 cm + cube
+   height), the table height differs: stop and adjust `motion.touch_z`.
 4. Optional check: `python3 tools/test_motion.py yellow` (preview) / `--execute`.
 
 After restarting MoveIt or RViz, `python3 tools/spawn_cubes.py` shows the cubes again
@@ -63,9 +63,9 @@ Claude Code is blocked from running it (`.claude/hooks/block_robot_motion.py`).
 | `scripts/display_node.py` | Participant monitor (choice, score, rating prompt) + 1-7 keypad |
 | `src/hri_legible_motion/experiment.py` | Counterbalancing, trial schedule, measures (f, score, ...), CSV (no ROS) |
 | `src/hri_legible_motion/trajectories.py` | Legacy trajectory-cache save/load (no ROS) |
-| `tools/precompute_trajectories.py` | Legacy cache-generation tool; legible generation remains a placeholder |
+| `tools/precompute_trajectories.py` | Legacy cache-generation tool: 2D reaches in the hover plane, both motion types |
 | `test/` | Offline tests: `python3 -m unittest discover -s test` |
-| `src/hri_legible_motion/legibility.py` | Legacy baseline/path helpers and unimplemented legible-path sketch; the FK optimizer lives in the separate package |
+| `src/hri_legible_motion/legibility.py` | Legacy straight / sine-bend paths and 2D legibility score; the FK optimizer lives in the separate package |
 | `msg/TrialInfo.msg` | Experiment → motion: trial id, target, condition, bend |
 | `msg/ChoiceEvent.msg` | Participant choice change |
 | `config/experiment.yaml` | Block coordinates, robot, trial settings |

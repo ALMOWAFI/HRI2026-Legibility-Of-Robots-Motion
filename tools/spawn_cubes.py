@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Show the four coloured cubes from config/experiment.yaml in the MoveIt planning scene
-and as RViz markers (no robot motion). To place the real cubes, use place_blocks.py.
+"""Show the four coloured cubes and the pointer on the flange from config/experiment.yaml in
+the MoveIt planning scene and as RViz markers (no robot motion). To place the real cubes, use place_blocks.py.
 
 usage: spawn_cubes.py [--remove] [config.yaml]
 
@@ -26,6 +26,7 @@ def main():
     ok, viewers = set_cubes(cfg, [] if remove else cfg["blocks"])
     print("%s %d cubes in the MoveIt scene: %s" % ("Removed" if remove else "Added", len(cfg["blocks"]),
                                                     "ok" if ok else "FAILED"))
+    print("Pointer (%.0f cm) attached to %s." % (cfg["tool"]["length"] * 100, cfg["motion"]["ee_link"]))
     print("Markers on /visualization_marker_array: %s" % (
         "sent to RViz" if viewers else "no RViz listening (start RViz, then re-run)"))
 

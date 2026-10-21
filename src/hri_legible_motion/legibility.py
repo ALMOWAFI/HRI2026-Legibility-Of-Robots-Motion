@@ -46,11 +46,32 @@ def stop_and_go(points, speed, rate=100.0, min_duration=1.0):
     return np.array(times), np.array(xyz)
 
 
-def legible_path(start, goal, bend):
-    # TODO
-    raise NotImplementedError
+def legible_path(start, goal, bend, n=2001):
+    """Straight line plus a lateral offset bend * sin(pi u): 0 at both ends, |bend| at
+    mid-reach (plan §2.1). `bend` is horizontal (trajectories.bend_vector), so with start
+    and goal at the same height the whole path stays in that plane. Re-parametrised so
+    s is proportional to arc length, like baseline_path()."""
+    start, goal, bend = (np.asarray(v, float) for v in (start, goal, bend))
+    u = np.linspace(0.0, 1.0, n)
+    xyz = start + u[:, None] * (goal - start) + np.sin(np.pi * u)[:, None] * bend
+    arc = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(xyz, axis=0), axis=1))])
+    arc /= arc[-1]
+    return lambda s: np.stack([np.interp(s, arc, xyz[:, i]) for i in range(3)], axis=-1)
 
 
-def legibility_score(path, goals, target):
-    # TODO
-    raise NotImplementedError
+def legibility_score(xyz, goals, target, beta=10.0):
+    """Dragan et al. 2013 legibility of a sampled path (rows equally spaced in time),
+    in the horizontal plane: cost = x-y path length (m), uniform prior over the goals.
+    P(G | path so far) ~ exp(-beta (C(S->Q) + |Q G|)) / exp(-beta |S G|), averaged over
+    time with weight (T - t). `beta` (1/m) sets how sharply the observer's guess follows
+    the cost; only meaningful for comparing paths scored with the same beta. In [0, 1]."""
+    p = np.asarray(xyz, float)[:, :2]
+    g = np.asarray(goals, float)[:, :2]
+    so_far = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(p, axis=0), axis=1))])
+    to_goal = np.linalg.norm(p[:, None, :] - g[None, :, :], axis=2)            # (N, goals)
+    direct = np.linalg.norm(g - p[0], axis=1)                                   # (goals,)
+    logit = -beta * (so_far[:, None] + to_goal - direct[None, :])
+    prob = np.exp(logit - logit.max(axis=1, keepdims=True))
+    prob = prob[:, target] / prob.sum(axis=1)
+    weight = np.linspace(1.0, 0.0, len(p))
+    return float((prob * weight).sum() / weight.sum())

@@ -66,11 +66,8 @@ def run(robot, cfg, start, orientation):
     robot.connect()
     set_cubes(cfg, [])  # nothing placed yet
     print("Clear the table. Speed slider 100 %. Hand on the e-stop for every move.")
-    if robot.distance_deg(robot.current_joints(), start) > cfg["safety"]["start_tolerance_deg"]:
-        robot.check_move_joints(start, 8.0)  # refuses big configuration changes before asking
-        if not require_operator("Move to the start pose (8 s)?"):
-            return
-        robot.move_joints(start, 8.0)
+    if not robot.go_to_start(orientation, cfg["setup"]["safe_height"]):
+        return
     robot.check_at(start, "the start pose")
 
     placed = []

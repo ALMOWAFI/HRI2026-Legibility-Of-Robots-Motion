@@ -4,40 +4,50 @@ frame_id: arm_base_link
 # Cube centres, defined relative to the robot (not the table, which moves between labs).
 # Before every session, tools/place_blocks.py points the robot at each spot and the cubes
 # are placed under it.
-# Arc of radius 0.45 m around the start pose's tool position (0.434, -0.134), 18 cm chords
-# between neighbours, symmetric about the robot's x axis: every reach has the same length,
-# so edge vs middle (H3) is not confounded with reach length. Generated and checked for
-# reachability by tools/make_layout.py (re-run it to change the layout).
-# yaw (deg): long side of the cube along its reach line, pointing at the start pose.
+# Spots recorded with tf_echo (arm_tool0, pointer straight down over each spot), 2026-10-21
+# (second recording): a row on the robot's left, ~12 cm between neighbours. Orange and yellow
+# moved toward the base to 0.912 m (recorded 0.932 / 0.927 m: past the reach limit, ~0.92 m). Earlier arc layout: see git history
+# (tools/make_layout.py --write would replace these with an arc around the start pose).
+# yaw (deg): long side of the cube along its reach line, pointing at the start pose (0.256, -0.152).
 # z = table top (-0.080) + half the cube height. Ordered left to right as seen
 # from the robot (+y = left).
 block_size: [0.053, 0.025, 0.012]   # length (along yaw), width, height (z)
 blocks:
-  - {id: 0, name: B1, color: orange, rgba: [1.0, 0.5, 0.0, 1.0], position: [0.804, 0.122, -0.074], yaw:  34.6}
-  - {id: 1, name: B2, color: red,    rgba: [0.9, 0.0, 0.0, 1.0], position: [0.875, -0.044, -0.074], yaw:  11.5}
-  - {id: 2, name: B3, color: yellow, rgba: [1.0, 0.9, 0.0, 1.0], position: [0.875, -0.224, -0.074], yaw: -11.5}
-  - {id: 3, name: B4, color: green,  rgba: [0.0, 0.7, 0.0, 1.0], position: [0.804, -0.389, -0.074], yaw: -34.6}
+  - {id: 0, name: B1, color: green,  rgba: [0.0, 0.7, 0.0, 1.0], position: [0.618, 0.626, -0.074], yaw: 65.0}
+  - {id: 1, name: B2, color: red,    rgba: [0.9, 0.0, 0.0, 1.0], position: [0.721, 0.555, -0.074], yaw: 56.7}
+  - {id: 2, name: B3, color: orange, rgba: [1.0, 0.5, 0.0, 1.0], position: [0.782, 0.470, -0.074], yaw: 49.8}
+  - {id: 3, name: B4, color: yellow, rgba: [1.0, 0.9, 0.0, 1.0], position: [0.833, 0.371, -0.074], yaw: 42.2}
 
 motion:
   planning_group: arm
   ee_link: arm_tool0
   action: /scaled_pos_joint_traj_controller/follow_joint_trajectory
-  # Start of every reach: tool0 at (0.434, -0.134, 0.245), pointing down (make_layout.py).
-  start_joints: {arm_shoulder_pan_joint: -3.1420, arm_shoulder_lift_joint: -1.6302, arm_elbow_joint: -2.1798, arm_wrist_1_joint: -0.8981, arm_wrist_2_joint: 1.5700, arm_wrist_3_joint: 0.0001}
-  touch_z: 0.003       # tool0 z with the real tool tip on a cube (recorded B1..B4 poses)
-  hover_height: 0.05   # reach ends this far above touch_z
-  duration: 4.0        # s, every reach (both motion types)
+  # Start of every reach: tool0 at (0.256, -0.152, 0.113), pointing down: x/y recorded with
+  # tf_echo (2026-10-21), z = the reach plane (IK).
+  start_joints: {arm_shoulder_pan_joint: -3.2137, arm_shoulder_lift_joint: -1.6764, arm_elbow_joint: -2.7247, arm_wrist_1_joint: -0.3065, arm_wrist_2_joint: 1.5665, arm_wrist_3_joint: -0.0689}
+  # Pointer on the flange, tip touching the table: tool0 z = 0.051 (tf_echo, 2026-10-21).
+  touch_z: 0.063       # tool0 z with the tip on a cube top = 0.051 + cube height 0.012
+  # Reaches are 2D: start pose and hover points all at tool0 z = touch_z + hover_height = 0.113,
+  # i.e. the tip 5 cm above the cube tops for the whole reach.
+  hover_height: 0.05
+  duration: 5.0        # s, every reach (both motion types)
+
+# Pointer on the flange: in the MoveIt scene (collision checked) and in RViz (spawn_cubes.py).
+tool:
+  length: 0.09         # m, from arm_tool0 (flange face) to the tip, along the flange axis
+  radius: 0.006        # m
+  rgba: [0.6, 0.6, 0.6, 1.0]
 
 # tools/place_blocks.py: the robot points at each cube position so it can be placed by hand.
 setup:
-  point_height: 0.03   # tool tip this far above the cube top (tool0 z = touch_z + point_height)
-  safe_height: 0.15    # tool0 z for travelling between positions
+  point_height: 0.05   # tool tip this far above the cube top, clear of the cubes (tool0 z = touch_z + point_height)
+  safe_height: 0.13    # tool0 z for travelling between positions (spots ~0.92 m out are not reachable at 0.15)
   speed: 0.08          # m/s average per segment, slow on purpose
 
 # Checked by hri_legible_motion.safety before anything is sent to the robot.
 safety:
-  workspace_min: [0.20, -0.80, 0.023]  # tool0 in arm_base_link; z = touch_z + 2 cm (tip above cube tops)
-  workspace_max: [0.95,  0.65, 0.50]
+  workspace_min: [0.20, -0.80, 0.083]  # tool0 in arm_base_link; z = touch_z + 2 cm (tip above cube tops)
+  workspace_max: [0.95,  0.70, 0.50]   # y: table edge at ~0.69 (lab model)
   max_tcp_speed: 0.5          # m/s
   max_joint_speed_deg: 60.0   # deg/s
   max_joint_step_deg: 2.0     # between 10 ms samples; more = IK branch flip
@@ -53,7 +63,7 @@ experiment:
   # sees them; the participant faces the robot, so their leftmost cube is B4.
   button_to_block: [3, 2, 1, 0]
   # Peak lateral deviation (m) logged as TrialInfo.bend; the path itself comes from the trajectory file.
-  bend: {predictable: 0.0, legible: 0.20}
+  bend: {predictable: 0.0, legible: 0.12}   # 12 cm: the most green can do from the start pose (bends toward the base)
   # Bend direction per target (+1 = +y, the robot's left). Edge cubes outward, middle cubes
   # away from the two cubes on the other side (plan §2.2).
   bend_side: [1, 1, -1, -1]
@@ -61,7 +71,7 @@ experiment:
   max_same_in_row: 2
   # Counterbalancing: block order x colour rotation, balanced list shuffled once with this seed.
   assignment_seed: 2026
-  colors: [orange, red, yellow, green]   # rotation 0 = the colours in `blocks` above
+  colors: [green, red, orange, yellow]   # rotation 0 = the colours in `blocks` above
   ready_time: 1.0              # s "Get ready" on the screen before the reach
   score_time: 3.0              # s score on the screen after the reach
   rating_timeout: 30.0         # s to answer a 1-7 rating, then it is logged empty

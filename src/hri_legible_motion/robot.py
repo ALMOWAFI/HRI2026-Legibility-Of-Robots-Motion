@@ -13,7 +13,7 @@ from moveit_msgs.srv import GetCartesianPath, GetPositionFK
 from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
-from hri_legible_motion.safety import SafetyError, check_direct_move, check_joints, check_path
+from hri_legible_motion.safety import SafetyError, check_direct_move, check_joints, check_path, require_operator
 
 
 def joint_state(joints):
@@ -131,6 +131,32 @@ class Robot:
         traj.points = [JointTrajectoryPoint(positions=[target[n] for n in names], velocities=[0.0] * len(names),
                                             time_from_start=rospy.Duration(duration))]
         self.execute(traj)
+
+    def go_to_start(self, orientation, lift_to, duration=8.0):
+        """Bring the robot to motion.start_joints after the operator types 'go'. Small offsets:
+        one direct joint move. Too far for that (e.g. another arm configuration): lift to
+        z = lift_to, then the checked straight line of plan_return(). False if declined."""
+        start = self.m["start_joints"]
+        off = self.distance_deg(self.current_joints(), start)
+        if off <= self.limits["start_tolerance_deg"]:
+            return True
+        try:
+            self.check_move_joints(start, duration)
+        except SafetyError:
+            current = self.current_joints()
+            traj = self.plan_return(current, orientation, lift_to=lift_to)
+            self.show(current, [traj])
+            if not require_operator("Robot is %.0f deg from the start pose: lift to z = %.2f, then a straight "
+                                    "line there (%.0f s, preview in RViz)?"
+                                    % (off, lift_to, traj.points[-1].time_from_start.to_sec())):
+                return False
+            self.execute(traj)
+            self.move_joints(start, 2.0)  # residual correction, a fraction of a degree
+            return True
+        if not require_operator("Robot is %.0f deg from the start pose. Move there in %.0f s?" % (off, duration)):
+            return False
+        self.move_joints(start, duration)
+        return True
 
     def check_at(self, joints, what):
         off = self.distance_deg(self.current_joints(), joints)
