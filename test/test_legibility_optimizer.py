@@ -7,7 +7,7 @@ import unittest
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from hri_legible_motion import legibility as L  # noqa: E402
+from hri_legible_motion import legibility_optimizer as L  # noqa: E402
 
 
 class TestLegibilityPaths(unittest.TestCase):
