@@ -1,17 +1,33 @@
 # hri_legible_motion
 
-Legible robot motion HRI experiment on a **UR5e** (ROS Noetic).
-Tests whether bending the robot's reach makes its target easier to infer.
+Legible robot motion HRI experiment on a **UR5e**, using ROS 1 and MoveIt.
+The active lab integration compares an RRT-Connect baseline with FK-based
+legibility optimization. The exact installed ROS/MoveIt version must be checked
+on the lab computer.
 
-## Architecture
+**Start here:** [connected pipeline lab guide](docs/connected_pipeline.md).
+Use this repository's `integration/rrt-optimizer-session` branch with the optimizer
+repository's `integration/preview-planner-optimizer` branch. The changes are in
+draft PRs. The companion package now includes a separate validation/execution
+node, disabled for motion by default. Live ROS and hardware verification remain.
+
+## Connected lab architecture
 ```
-config (fixed block coordinates) ─┐
-Experiment node ── /trial_start ──► Motion node: baseline → legibility optimizer
-                                    → MoveIt IK → joint trajectory → UR5e
+Shared config → block layout publisher → RRT planner
+Experiment node --pipeline → trial request ─┘
+RRT baseline → FK optimizer / baseline bypass → trajectory proposal
+  → downstream retiming + sampled model/scene checks → confirmed execution
+  → correlated measured motion feedback → Experiment node
 Participant → Buttons → /button_press → Experiment node → choices + timestamps + trial data (CSV)
 ```
 No vision node: block coordinates live in `config/experiment.yaml`, in the robot frame.
-The table moves between lab sessions, so the robot places the blocks (see below).
+The table moves between lab sessions, so the placement tool guides human block
+placement at fixed positions (see below).
+
+Use `roslaunch hri_legibility_preview group_pipeline.launch` with the current
+`experiment_config`, then the guide's planning-only trial checks. The legacy
+`hri.launch`, replay motion node and trajectory cache are not used in this flow.
+They remain available for the original mode described at the end of this README.
 
 ## Before every lab session (calibration)
 The cube spots are fixed relative to the robot, not the table. Each session:
@@ -42,18 +58,18 @@ Claude Code is blocked from running it (`.claude/hooks/block_robot_motion.py`).
 ## Layout
 | Path | Purpose |
 |---|---|
-| `scripts/motion_node.py` | Replays the precomputed reaches, status, return to start |
+| `scripts/motion_node.py` | Legacy replay mode; not used by the connected pipeline |
 | `scripts/experiment_node.py` | Session state machine, buttons, scoring, ratings, CSV + rosbag |
 | `scripts/display_node.py` | Participant monitor (choice, score, rating prompt) + 1-7 keypad |
 | `src/hri_legible_motion/experiment.py` | Counterbalancing, trial schedule, measures (f, score, ...), CSV (no ROS) |
-| `src/hri_legible_motion/trajectories.py` | Save/load the precomputed reaches with a hash (no ROS) |
-| `tools/precompute_trajectories.py` | Plan + check all 8 reaches once, save `config/trajectories.npz` |
+| `src/hri_legible_motion/trajectories.py` | Legacy trajectory-cache save/load (no ROS) |
+| `tools/precompute_trajectories.py` | Legacy cache-generation tool; legible generation remains a placeholder |
 | `test/` | Offline tests: `python3 -m unittest discover -s test` |
-| `src/hri_legible_motion/legibility.py` | Planner + legibility optimizer |
+| `src/hri_legible_motion/legibility.py` | Legacy baseline/path helpers and unimplemented legible-path sketch; the FK optimizer lives in the separate package |
 | `msg/TrialInfo.msg` | Experiment → motion: trial id, target, condition, bend |
 | `msg/ChoiceEvent.msg` | Participant choice change |
 | `config/experiment.yaml` | Block coordinates, robot, trial settings |
-| `launch/hri.launch` | Starts both nodes |
+| `launch/hri.launch` | Starts legacy replay motion and display; not the connected pipeline |
 | `src/hri_legible_motion/robot.py` | FK, Cartesian planning with our timing, execution |
 | `src/hri_legible_motion/safety.py` | Workspace / speed / joint-jump checks, operator confirmation |
 | `src/hri_legible_motion/scene.py` | Cubes in the MoveIt scene and as RViz markers |
@@ -62,7 +78,12 @@ Claude Code is blocked from running it (`.claude/hooks/block_robot_motion.py`).
 | `tools/test_motion.py` | Straight test reach to one cube |
 | `docs/experiment_plan.md` | Study implementation plan |
 
-## Topics
+## Existing group topics
+
+The `/trial_start`, `/motion_status` and `/motion_home` rows below apply only to
+the legacy mode. The connected mode uses the typed `/legibility/*` interfaces
+listed in the [current guide](docs/connected_pipeline.md). Button, choice, display
+and rating topics are shared by both modes.
 | Topic | Type | From → To |
 |---|---|---|
 | `/trial_start` | `TrialInfo` | experiment → motion |
@@ -73,10 +94,12 @@ Claude Code is blocked from running it (`.claude/hooks/block_robot_motion.py`).
 | `/display` | `std_msgs/String` (JSON) | experiment → display |
 | `/rating` | `std_msgs/Int32` (1–7) | display keypad → experiment |
 
-UR5e side (driver + MoveIt): `/joint_states`, `/tf` (`base_link` → `tool0`),
-`/scaled_pos_joint_traj_controller/follow_joint_trajectory`, `/move_group`.
+Confirmed lab identifiers: planning group `arm`, planning frame `base`, goal frame
+`arm_base_link`, and end-effector `arm_tool0`. Frames must be transformed explicitly,
+not relabeled. The config names the controller action
+`/scaled_pos_joint_traj_controller/follow_joint_trajectory`; verify it on the robot.
 
-## Precompute the reaches (once, and after any layout / timing change)
+## Legacy mode: precompute the reaches
 With MoveIt running (robot stack, or `roslaunch ur5e_moveit_config demo.launch`):
 ```
 python3 tools/precompute_trajectories.py        # plans, checks, RViz preview, saves config/trajectories.npz
@@ -85,7 +108,14 @@ No robot motion. Saves `predictable_0..3` and `legible_0..3` with a hash that go
 session log. Until `legibility.legible_path()` exists, only the predictable reaches are saved and
 legible trials fail with a clear message. Rerun after changing cubes, start pose or `motion.duration`.
 
-## Run a session
+## Legacy mode: run a cached session
+
+An opt-in [RRT/FK optimizer integration](docs/connected_pipeline.md) is available
+with `experiment_node.py --pipeline --config /absolute/path/to/experiment.yaml`.
+It uses the separate optimizer package and its opt-in downstream node. Complete
+the connected guide's lab checks before enabling execution. The cache/replay
+instructions below remain the original mode.
+
 After the calibration above, one terminal each:
 ```
 roslaunch hri_legible_motion hri.launch                        # motion node + participant display
