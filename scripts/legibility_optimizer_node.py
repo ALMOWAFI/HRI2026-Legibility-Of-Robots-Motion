@@ -9,6 +9,7 @@ that executes the reach (test_motion.py), exactly as for the predictable reach.
 
 usage: legibility_optimizer_node.py [config.yaml]     (default: config/experiment.yaml)
 """
+import argparse
 import os
 import sys
 
@@ -31,36 +32,57 @@ class OptimizerNode:
         rospy.Subscriber(reach_topic.PREDICTABLE, CartesianTrajectory, self.on_reach, queue_size=10)
         rospy.loginfo("Optimizer ready: %s -> %s (%s)", reach_topic.PREDICTABLE, reach_topic.LEGIBLE, self.config)
 
-    def reply(self, request, times=(), xyz=()):
-        orientation = request.points[0].point.pose.orientation if request.points else None
-        self.pub.publish(reach_topic.to_msg(times, xyz, orientation, request.header.frame_id,
-                                            request.tracked_frame, stamp=request.header.stamp))
+    def reply(self, request, times=None, xyz=None):
+        self.pub.publish(reach_topic.reply_message(request, times, xyz))
 
     def on_reach(self, msg):
-        times, xyz = reach_topic.from_msg(msg)
-        target = reach_topic.target_of(self.cfg, xyz[-1]) if len(xyz) > 2 else None
-        if target is None:
-            rospy.logerr("Reach does not end at a cube's hover point (or has < 3 points); not optimized.")
-            return self.reply(msg)
-        name = self.cfg["blocks"][target]["name"]
         try:
+            times, xyz = reach_topic.validate_message(msg, self.cfg["frame_id"], self.cfg["motion"]["ee_link"])
+            target = reach_topic.target_of(self.cfg, xyz[-1])
+            if target is None:
+                raise ValueError("Reach does not end at a configured cube hover point.")
+            name = self.cfg["blocks"][target]["name"]
             out = optimize_planar_reach(times, xyz, self.goals, target, self.config)
-        except ValueError as e:
-            rospy.logerr("%s: %s", name, e)
+            if not (out.success and out.numerical_success and out.geometric_valid):
+                rospy.logerr("%s: optimizer rejected: %s (numerical_success=%s, geometric_valid=%s)",
+                             name, out.message, getattr(out, "numerical_success", False),
+                             getattr(out, "geometric_valid", False))
+                reasons = [attempt.get("rejection", attempt.get("message", "unknown"))
+                           for attempt in out.diagnostics.get("attempts", []) if not attempt.get("accepted")]
+                if reasons:
+                    rospy.logerr("%s: rejected attempts: %s", name, reasons)
+                return self.reply(msg)
+            self.reply(msg, out.times, out.xyz)
+        except (ValueError, TypeError, AttributeError, IndexError) as e:
+            rospy.logerr("Optimizer rejected reach: %s", e)
             return self.reply(msg)
-        if not out.success:
-            rospy.logerr("%s: optimizer failed: %s", name, out.message)
-            return self.reply(msg)
-        rospy.loginfo("%s: legibility %.3f -> %.3f, path x%.3f, max lateral %.3f m",
-                      name, out.baseline_score, out.optimized_score, out.length_ratio, out.max_lateral)
-        self.reply(msg, out.times, out.xyz)
+        rospy.loginfo("%s: model score %.4f -> %.4f (gain %+.2f percentage points), "
+                      "max lateral %.2f cm, path x%.4f; beta=%.3g, lambda=%.3g, "
+                      "numerical_success=%s, geometric_valid=%s, physical_validity=not_checked. "
+                      "MoveIt and robot validation remain required.",
+                      name, out.baseline_score, out.optimized_score,
+                      100 * (out.optimized_score - out.baseline_score), 100 * out.max_lateral,
+                      out.length_ratio, self.config.beta, self.config.efficiency_weight,
+                      getattr(out, "numerical_success", out.success), getattr(out, "geometric_valid", False))
+        diagnostics = out.diagnostics
+        rospy.loginfo("%s: active constraints=%s; minimum target margin=%s; search attempts=%d",
+                      name, diagnostics.get("active_constraints", []),
+                      diagnostics.get("optimized_metrics", {}).get("minimum_goal_margin"),
+                      len(diagnostics.get("attempts", [])))
 
 
 def main():
-    args = rospy.myargv()[1:]
-    with open(args[0] if args else os.path.join(ROOT, "config", "experiment.yaml")) as f:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("config_path", nargs="?", help="Configuration YAML (legacy positional form)")
+    parser.add_argument("--config", help="Configuration YAML shared with test_motion.py")
+    args = parser.parse_args(rospy.myargv()[1:])
+    if args.config and args.config_path:
+        parser.error("Use either --config or the positional config path.")
+    path = os.path.abspath(args.config or args.config_path or os.path.join(ROOT, "config", "experiment.yaml"))
+    with open(path) as f:
         cfg = yaml.safe_load(f)
     rospy.init_node("legibility_optimizer")
+    rospy.loginfo("Optimizer configuration: %s (loaded once; restart after editing)", path)
     OptimizerNode(cfg)
     rospy.spin()
 

@@ -2,7 +2,7 @@
 """Plan a test reach from the start pose to the hover point above one cube, show it in
 RViz (MotionPlanning > Planned Path) and optionally run it on the UR5e.
 
-usage: test_motion.py <B1..B4 | orange|red|yellow|green | all> [--legible] [--execute]
+usage: test_motion.py <B1..B4 | orange|red|yellow|green | all> [--legible] [--execute] [--config FILE]
 
 Plans the predictable (straight) reach and publishes it on /hri/predictable_reach.
 --legible: waits for the optimizer's answer on /hri/legible_reach (start
@@ -11,9 +11,11 @@ end, height and duration, only x-y differ. Tool orientation is kept as at the st
 Every trajectory passes hri_legible_motion.safety (workspace, speed, joint jumps) before it
 is shown or sent; --execute also needs a person at an interactive terminal to type 'go'.
 """
+import argparse
 import os
 import queue
 import sys
+import time
 
 import numpy as np
 import rospy
@@ -39,9 +41,9 @@ class Optimizer:
         self.replies = queue.Queue()
         if legible:
             rospy.Subscriber(reach_topic.LEGIBLE, CartesianTrajectory, self.replies.put)
-        deadline = rospy.Time.now() + rospy.Duration(5.0 if legible else 1.0)
-        while self.pub.get_num_connections() == 0 and rospy.Time.now() < deadline:
-            rospy.sleep(0.1)
+        deadline = time.monotonic() + (5.0 if legible else 1.0)
+        while self.pub.get_num_connections() == 0 and time.monotonic() < deadline and not rospy.is_shutdown():
+            time.sleep(0.1)
         if legible and self.pub.get_num_connections() == 0:
             raise SafetyError("Nobody subscribes to %s: start scripts/legibility_optimizer_node.py first."
                               % reach_topic.PREDICTABLE)
@@ -49,22 +51,28 @@ class Optimizer:
     def send(self, times, xyz, orientation):
         """Publish the predictable reach; returns the legible (times, xyz) if legible, else None."""
         stamp = rospy.Time.now()
-        self.pub.publish(reach_topic.to_msg(times, xyz, orientation, self.cfg["frame_id"],
-                                            self.cfg["motion"]["ee_link"], stamp=stamp))
+        request = reach_topic.to_msg(times, xyz, orientation, self.cfg["frame_id"],
+                                     self.cfg["motion"]["ee_link"], stamp=stamp)
+        self.pub.publish(request)
         if not self.legible:
             return None
-        timeout = self.cfg.get("optimizer", {}).get("timeout", 60.0)
-        deadline = rospy.get_time() + timeout
-        while rospy.get_time() < deadline:
+        timeout = float(self.cfg.get("optimizer", {}).get("timeout", 60.0))
+        if not np.isfinite(timeout) or timeout <= 0:
+            raise SafetyError("Optimizer timeout must be positive and finite.")
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline and not rospy.is_shutdown():
             try:
-                msg = self.replies.get(timeout=max(0.1, deadline - rospy.get_time()))
+                msg = self.replies.get(timeout=max(0.001, min(0.1, deadline - time.monotonic())))
             except queue.Empty:
-                break
+                continue
             if msg.header.stamp != stamp:
                 continue  # answer to another request
             if not msg.points:
                 raise SafetyError("The optimizer found no legible path (see its log).")
-            return reach_topic.from_msg(msg)
+            try:
+                return reach_topic.validate_response(request, msg)
+            except (ValueError, TypeError, AttributeError, IndexError) as error:
+                raise SafetyError("Invalid optimizer response: %s" % error) from error
         raise SafetyError("No answer from the optimizer within %.0f s." % timeout)
 
 
@@ -76,16 +84,20 @@ def plan_reach(robot, cfg, block, optimizer):
     # Samples are uniform in time under the min-jerk law, so MoveIt only solves IK per sample.
     times, xyz = sample(baseline_path(p0, p1), m["duration"])
     goals = reach_topic.hover_points(cfg)
-    score = planar_legibility(xyz, goals, block["id"])
+    target = next(i for i, item in enumerate(cfg["blocks"]) if item["id"] == block["id"])
+    beta = float(cfg.get("optimizer", {}).get("beta", 10.0))
+    score = planar_legibility(xyz, goals, target, beta=beta, times=times)
     legible = optimizer.send(times, xyz, orientation)
     if legible is not None:
         times, xyz = legible
         if np.linalg.norm(xyz[0] - p0) > 1e-3 or np.linalg.norm(xyz[-1] - p1) > 1e-3 \
                 or np.abs(xyz[:, 2] - p1[2]).max() > 1e-3:
             raise SafetyError("Legible reach to %s does not keep start, end and height." % block["name"])
-        print("Legibility %.3f (straight) -> %.3f (legible)" % (score, planar_legibility(xyz, goals, block["id"])))
+        optimized_score = planar_legibility(xyz, goals, target, beta=beta, times=times)
+        print("Model score %.4f -> %.4f (gain %+.2f percentage points; beta=%.3g)"
+              % (score, optimized_score, 100 * (optimized_score - score), beta))
     else:
-        print("Legibility %.3f" % score)
+        print("Model score %.4f (beta=%.3g)" % (score, beta))
     traj = robot.plan(start, times, xyz, orientation)
     length = np.linalg.norm(np.diff(xyz, axis=0), axis=1).sum()
     speed = np.linalg.norm(np.diff(xyz, axis=0), axis=1) / np.diff(times)
@@ -98,17 +110,24 @@ def plan_reach(robot, cfg, block, optimizer):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    with open(CONFIG) as f:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("target", help="Block name, color, or all")
+    parser.add_argument("--legible", action="store_true")
+    parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--config", default=CONFIG, help="Configuration YAML shared with optimizer node")
+    args = parser.parse_args(rospy.myargv()[1:])
+    config_path = os.path.abspath(args.config)
+    with open(config_path) as f:
         cfg = yaml.safe_load(f)
     blocks = {k: b for b in cfg["blocks"] for k in (b["name"], b["color"])}
-    if len(args) != 1 or (args[0] not in blocks and args[0] != "all"):
-        sys.exit(__doc__)
-    targets = cfg["blocks"] if args[0] == "all" else [blocks[args[0]]]
-    execute, legible = "--execute" in sys.argv, "--legible" in sys.argv
+    if args.target not in blocks and args.target != "all":
+        parser.error("Unknown target: %s" % args.target)
+    targets = cfg["blocks"] if args.target == "all" else [blocks[args.target]]
+    execute, legible = args.execute, args.legible
     if execute and not sys.stdin.isatty():
         sys.exit("--execute needs a person at an interactive terminal.")
     rospy.init_node("test_motion", anonymous=True)
+    rospy.loginfo("Test motion configuration: %s", config_path)
     robot = Robot(cfg)
     m = cfg["motion"]
     start = m["start_joints"]

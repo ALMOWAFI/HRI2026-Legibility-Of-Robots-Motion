@@ -13,6 +13,7 @@ is the predictable one optimized by legibility_optimizer.optimize_planar_reach()
 legibility score is printed and saved.
 """
 import argparse
+from dataclasses import asdict
 import os
 import sys
 
@@ -63,11 +64,11 @@ def main():
 
     reaches, trajs, names, scores, lateral = {}, [], None, {}, {}
     for motion in ([args.only] if args.only else MOTIONS):
-        for b in cfg["blocks"]:
+        for target, b in enumerate(cfg["blocks"]):
             p1 = np.array([b["position"][0], b["position"][1], plane_z])
             times, xyz = sample(baseline_path(p0, p1), m["duration"])
             if motion == "legible":
-                res = optimize_planar_reach(times, xyz, goals, b["id"], opt)
+                res = optimize_planar_reach(times, xyz, goals, target, opt)
                 if not res.success:
                     raise SafetyError("optimizer found no legible path to %s: %s" % (b["name"], res.message))
                 times, xyz = res.times, res.xyz
@@ -83,7 +84,7 @@ def main():
             qd = np.array([p.velocities for p in traj.points])
             length = np.linalg.norm(np.diff(xyz, axis=0), axis=1).sum()
             speed = np.linalg.norm(np.diff(xyz, axis=0), axis=1) / np.diff(times)
-            score = planar_legibility(xyz, goals, b["id"], opt.beta)
+            score = planar_legibility(xyz, goals, target, opt.beta, times=times)
             scores[trajectories.key(motion, b["id"])] = score
             lateral[trajectories.key(motion, b["id"])] = lateral_deviation(xyz, p0, p1)
             print("%-11s %-6s %-6s path %.3f m, peak %.2f m/s, lateral dev %.3f m, max joint %.0f deg/s, "
@@ -99,7 +100,8 @@ def main():
     print("Shown in RViz (MotionPlanning > Planned Path), all reaches in a row.")
     meta = trajectories.save(out, names, start, reaches, {
         "duration": m["duration"], "hover_height": m["hover_height"], "touch_z": m["touch_z"],
-        "optimizer": cfg["optimizer"], "plane_z": plane_z, "legibility": scores, "lateral": lateral,
+        "optimizer": asdict(opt), "score_version": "time_trapezoid_v2", "frame_id": cfg["frame_id"],
+        "plane_z": plane_z, "legibility": scores, "lateral": lateral,
         "blocks": {b["name"]: b["position"] for b in cfg["blocks"]}})
     print("Saved %d reaches to %s (hash %s)." % (len(reaches), out, meta["hash"]))
 

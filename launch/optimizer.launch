@@ -1,0 +1,7 @@
+<launch>
+  <!-- Optimizer only. No robot connection or execution. Start MoveIt separately for previews. -->
+  <arg name="config" default="$(find hri_legible_motion)/config/experiment.yaml"/>
+  <node pkg="hri_legible_motion" type="legibility_optimizer_node.py"
+        name="legibility_optimizer" output="screen" required="true"
+        args="--config $(arg config)"/>
+</launch>
