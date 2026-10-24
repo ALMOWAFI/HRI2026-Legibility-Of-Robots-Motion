@@ -65,8 +65,11 @@ optimizer:
   beta: 10.0            # 1/m, observer model of the Dragan score
   length_ratio: 1.04    # legible path at most 4 % longer than the straight reach: more breaks the
                         # 60 deg/s joint limit for the cubes at 0.91 m (2026-10-21 layout, 5 s)
-  efficiency_weight: 0.2  # Dragan's lambda: maximize legibility - lambda * (L / L_straight - 1);
+  efficiency_weight: 0.2  # soft efficiency penalty: maximize legibility - lambda * (L / L_straight - 1);
                         # higher = closer to the straight reach (0.2: edge cubes keep their bend)
+  protect_goal_ranking: true  # do not introduce a preference for a competing goal
+  n_starts: 5           # deterministic local searches; more than one avoids a bad initial bend
+  min_score_gain: 0.0001  # minimum accepted gain, 0.01 percentage points of the model score
   n_terms: 6            # sine terms per axis (shape freedom)
   smooth_weight: 0.001  # penalty on higher sine terms
   min_radius: 0.27      # m from the base axis; closer, the arm cannot point down (planning fails)

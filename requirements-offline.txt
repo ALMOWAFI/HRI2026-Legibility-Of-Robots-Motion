@@ -1,0 +1,5 @@
+# Pure Python tests and optimizer comparison; ROS dependencies use package.xml.
+numpy>=1.20
+scipy>=1.7
+PyYAML>=5.4
+matplotlib>=3.3

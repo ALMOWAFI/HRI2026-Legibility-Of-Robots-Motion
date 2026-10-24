@@ -134,7 +134,8 @@ class TestPlanarOptimizer(unittest.TestCase):
         for target, sign in ((0, 1), (3, -1)):   # B1 on the left of its reach, B4 on the right
             _, _, out = self.reach(target)
             mid = out.xyz[len(out.xyz) // 2] - self.P0
-            self.assertEqual(np.sign(np.cross((self.GOALS[target] - self.P0)[:2], mid[:2])), sign)
+            direction = (self.GOALS[target] - self.P0)[:2]
+            self.assertEqual(np.sign(direction[0] * mid[1] - direction[1] * mid[0]), sign)
 
     def test_higher_lambda_shorter_path(self):
         t, xyz = L.sample(L.baseline_path(self.P0, self.GOALS[1]), 5.0)

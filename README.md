@@ -1,145 +1,97 @@
-# hri_legible_motion
+﻿# UR5e legible-motion experiment
 
-Legible robot motion HRI experiment on a **UR5e**, using ROS 1 and MoveIt.
-The active lab integration compares an RRT-Connect baseline with FK-based
-legibility optimization. The exact installed ROS/MoveIt version must be checked
-on the lab computer.
+ROS 1 / MoveIt, with fixed block positions and horizontal reaches above the table.
 
-**Start here:** [connected pipeline lab guide](docs/connected_pipeline.md).
-Use this repository's `integration/rrt-optimizer-session` branch with the optimizer
-repository's `integration/preview-planner-optimizer` branch. The changes are in
-draft PRs. The companion package now includes a separate validation/execution
-node, disabled for motion by default. Live ROS and hardware verification remain.
+The current planner is [tools/test_motion.py](tools/test_motion.py). The optimizer
+node is [scripts/legibility_optimizer_node.py](scripts/legibility_optimizer_node.py),
+and its mathematics is in [src/hri_legible_motion/legibility_optimizer.py](src/hri_legible_motion/legibility_optimizer.py).
 
-## Connected lab architecture
+```text
+config/experiment.yaml
+  -> test_motion.py: straight Cartesian baseline
+  -> /hri/predictable_reach
+  -> legibility_optimizer_node.py: constrained 2D optimization
+  -> /hri/legible_reach
+  -> test_motion.py: MoveIt Cartesian IK + trajectory checks + RViz
+  -> explicit operator execution
 ```
-Shared config → block layout publisher → RRT planner
-Experiment node --pipeline → trial request ─┘
-RRT baseline → FK optimizer / baseline bypass → trajectory proposal
-  → downstream retiming + sampled model/scene checks → confirmed execution
-  → correlated measured motion feedback → Experiment node
-Participant → Buttons → /button_press → Experiment node → choices + timestamps + trial data (CSV)
+
+Both reach topics use `moveit_msgs/CartesianTrajectory`. The optimizer publishes
+Cartesian proposals and never executes the robot. This flow uses Cartesian
+planning; it does not use RRT-Connect. The earlier separate RRT/FK integration is
+historical context in [docs/connected_pipeline.md](docs/connected_pipeline.md).
+
+## Preview in the lab
+
+Start the lab's existing robot/MoveIt stack, then from this package directory:
+
+```bash
+# Terminal 1: optimizer, no motion
+roslaunch hri_legible_motion optimizer.launch
+# Alternatively: python3 scripts/legibility_optimizer_node.py
+
+# Terminal 2: baseline preview, then optimized preview
+python3 tools/test_motion.py B2
+python3 tools/test_motion.py B2 --legible
 ```
-No vision node: block coordinates live in `config/experiment.yaml`, in the robot frame.
-The table moves between lab sessions, so the placement tool guides human block
-placement at fixed positions (see below).
 
-Use `roslaunch hri_legibility_preview group_pipeline.launch` with the current
-`experiment_config`, then the guide's planning-only trial checks. The legacy
-`hri.launch`, replay motion node and trajectory cache are not used in this flow.
-They remain available for the original mode described at the end of this README.
+Default configuration: `config/experiment.yaml`. Restart the optimizer after
+editing it. To select another file, use `config:=/path/experiment.yaml` with
+roslaunch and `--config /path/experiment.yaml` with the Python tools.
 
-## Before every lab session (calibration)
-The cube spots are fixed relative to the robot, not the table. Each session:
-1. Put the table under the arc of spots (80–88 cm in front of the robot base,
-   from 12 cm to its left to 39 cm to its right) and clear it.
-   To change the layout: `python3 tools/make_layout.py --back 0.05 --radius 0.45` (preview,
-   no motion), add `--write` to update the config, then redo the placement.
-2. Bring up the robot (one terminal each, keep them running):
-   ```
-   ~/scripts/launch_hardware.sh
-   ~/scripts/resend_robot_program.sh      # pendant in Remote Control
-   ```
-3. Preview, then run the placement at the robot, hand on the e-stop:
-   ```
-   python3 tools/place_blocks.py              # plan + RViz preview, no motion
-   python3 tools/place_blocks.py --execute    # robot points at each spot
-   ```
-   For each colour the robot stops 5 cm above where the cube's top will be (`setup.point_height`);
-   put the cube under the tool tip (long side pointing back toward the start pose), press Enter.
-   The cube appears in RViz. If the tip is clearly not ~6 cm above the table top (5 cm + cube
-   height), the table height differs: stop and adjust `motion.touch_z`.
-4. Optional check: `python3 tools/test_motion.py yellow` (preview) / `--execute`.
-   Legible reach: start the optimizer in another terminal, then add `--legible`:
-   ```
-   python3 scripts/legibility_optimizer_node.py              # keep running
-   python3 tools/test_motion.py yellow --legible             # preview, then --execute
-   ```
-   test_motion.py publishes the predictable reach on `/hri/predictable_reach`; the optimizer
-   answers with the legible one on `/hri/legible_reach` (both `moveit_msgs/CartesianTrajectory`),
-   which then goes through the same IK and safety checks.
+The configured group is `arm`, tool link `arm_tool0`, and coordinate frame
+`arm_base_link`. The current tool0 reach plane is 0.113 m in that frame; this is
+not the height above the table. Block placement remains `tools/place_blocks.py`;
+`tools/spawn_cubes.py` displays the configured scene. Review the current lab
+geometry and pointer model before motion.
 
-After restarting MoveIt or RViz, `python3 tools/spawn_cubes.py` shows the cubes again
-(no motion). Robot motion always needs a person at the terminal typing `go`;
-Claude Code is blocked from running it (`.claude/hooks/block_robot_motion.py`).
+Execution remains explicit through `--execute` and an interactive operator
+confirmation. Offline tests do not establish robot readiness. The lab must
+validate IK, joint limits, timing/acceleration, controller interpolation and the
+current collision scene for new trajectories.
 
-## Layout
-| Path | Purpose |
-|---|---|
-| `scripts/motion_node.py` | Legacy replay mode; not used by the connected pipeline |
-| `scripts/experiment_node.py` | Session state machine, buttons, scoring, ratings, CSV + rosbag |
-| `scripts/display_node.py` | Participant monitor (choice, score, rating prompt) + 1-7 keypad |
-| `src/hri_legible_motion/experiment.py` | Counterbalancing, trial schedule, measures (f, score, ...), CSV (no ROS) |
-| `src/hri_legible_motion/trajectories.py` | Legacy trajectory-cache save/load (no ROS) |
-| `tools/precompute_trajectories.py` | Plans and saves the 8 study reaches (predictable + optimized legible) in the hover plane |
-| `test/` | Offline tests: `python3 -m unittest discover -s test` |
-| `src/hri_legible_motion/legibility_optimizer.py` | Straight path, min-jerk time law, Dragan score; `optimize_planar_reach()` = the legible reaches (fixed height, x-y only); joint-space SLSQP optimizer (not fixed-height) |
-| `src/hri_legible_motion/reach_topic.py` | Reaches as `moveit_msgs/CartesianTrajectory` on `/hri/predictable_reach` / `/hri/legible_reach` |
-| `scripts/legibility_optimizer_node.py` | Predictable reach in, legible reach out (no motion) |
-| `msg/TrialInfo.msg` | Experiment → motion: trial id, target, condition, bend |
-| `msg/ChoiceEvent.msg` | Participant choice change |
-| `config/experiment.yaml` | Block coordinates, robot, trial settings |
-| `launch/hri.launch` | Starts legacy replay motion and display; not the connected pipeline |
-| `src/hri_legible_motion/robot.py` | FK, Cartesian planning with our timing, execution |
-| `src/hri_legible_motion/safety.py` | Workspace / speed / joint-jump checks, operator confirmation |
-| `src/hri_legible_motion/scene.py` | Cubes in the MoveIt scene and as RViz markers |
-| `tools/place_blocks.py` | Session calibration: robot points, you place the cubes |
-| `tools/spawn_cubes.py` | Show the cubes in RViz (no motion) |
-| `tools/test_motion.py` | Test reach to one cube: predictable, or `--legible` via the optimizer node |
-| `tools/test_planner_optimizer.py` | Dry run of MoveIt planning + the joint-space optimizer (no motion) |
-| `docs/experiment_plan.md` | Study implementation plan |
+## Compare the optimizer without the robot
 
-## Existing group topics
-
-The `/trial_start`, `/motion_status` and `/motion_home` rows below apply only to
-the legacy mode. The connected mode uses the typed `/legibility/*` interfaces
-listed in the [current guide](docs/connected_pipeline.md). Button, choice, display
-and rating topics are shared by both modes.
-| Topic | Type | From → To |
-|---|---|---|
-| `/trial_start` | `TrialInfo` | experiment → motion |
-| `/motion_status` | `std_msgs/String` (executing / done / failed / home) | motion → experiment |
-| `/motion_home` | `std_msgs/Empty` | experiment → motion (go to the start pose) |
-| `/button_press` | `std_msgs/Int32` (button 0–3, left to right as the participant sees them) | buttons → experiment |
-| `/choice` | `ChoiceEvent` | experiment → logging |
-| `/display` | `std_msgs/String` (JSON) | experiment → display |
-| `/rating` | `std_msgs/Int32` (1–7) | display keypad → experiment |
-
-Confirmed lab identifiers: planning group `arm`, planning frame `base`, goal frame
-`arm_base_link`, and end-effector `arm_tool0`. Frames must be transformed explicitly,
-not relabeled. The config names the controller action
-`/scaled_pos_joint_traj_controller/follow_joint_trajectory`; verify it on the robot.
-
-## Legacy mode: precompute the reaches
-With MoveIt running (robot stack, or `roslaunch ur5e_moveit_config demo.launch`):
+```bash
+python -m pip install -r requirements-offline.txt
+python -m unittest discover -s test -v
+python tools/compare_optimizer.py --lambdas 0 0.2 2 --bounds
 ```
-python3 tools/precompute_trajectories.py        # plans, checks, RViz preview, saves config/trajectories.npz
+
+Open the PNG/SVG figures and `summary.csv` in `build/optimizer-comparison/`.
+They compare the straight baseline, previous cached legible path, and new
+optimization under the same observer and motion limits. They show path shape,
+model probability, and whether a competing goal becomes more likely.
+
+A visible bend and a model score gain are different measurements. Increasing
+`efficiency_weight` (lambda) discourages extra length. `length_ratio` is the hard
+length budget. The new `protect_goal_ranking` constraint prevents introducing a
+wrong-goal preference. Read [the optimizer guide](docs/planar_optimizer.md) for
+its equations, acceptance rules, model limitations and paper comparison.
+
+## Study and participant interface
+
+`launch/hri.launch` starts the motion replay node and participant display.
+`scripts/experiment_node.py` handles trials, buttons, ratings and recording.
+These use the saved trajectory cache, not the live optimizer topic.
+
+The existing `config/trajectories.npz` is retained as the previous study cache.
+Offline comparisons do not replace it. With MoveIt available, generate and
+review a separate new cache before selecting it for a study:
+
+```bash
+python3 tools/precompute_trajectories.py --out build/trajectories-reviewed.npz
 ```
-No robot motion. Saves `predictable_0..3` and `legible_0..3` with a hash that goes into every
-session log. The legible reaches come from `optimize_planar_reach()` with the `optimizer` settings
-(the function the optimizer node runs). Rerun after changing cubes, start pose, `motion.duration`
-or `optimizer`, and commit the new file.
 
-## Legacy mode: run a cached session
+This command plans and previews without executing. After lab validation, select
+the reviewed cache via `trajectories` in the session configuration, restart the
+motion node, and use the existing study commands:
 
-An opt-in [RRT/FK optimizer integration](docs/connected_pipeline.md) is available
-with `experiment_node.py --pipeline --config /absolute/path/to/experiment.yaml`.
-It uses the separate optimizer package and its opt-in downstream node. Complete
-the connected guide's lab checks before enabling execution. The cache/replay
-instructions below remain the original mode.
-
-After the calibration above, one terminal each:
+```bash
+roslaunch hri_legible_motion hri.launch
+rosrun hri_legible_motion experiment_node.py P07
 ```
-roslaunch hri_legible_motion hri.launch                        # motion node + participant display
-rosrun hri_legible_motion experiment_node.py P07               # experimenter terminal
-```
-The experiment node prints the cube colours for this participant (colour rotation), starts the
-rosbag, asks you to type `go` to send the robot to the start pose, then waits for Enter before
-every trial. `q` stops; resume with `--start-trial N`. Output: `~/hri_data/P07/`
-(`session.yaml`, `trials.csv`, `choices.csv`, `session.bag`).
 
-Dry run without the robot: `roslaunch ur5e_moveit_config demo.launch`, then
-`roslaunch hri_legible_motion hri.launch sim:=true`, and set `display.keyboard_buttons: true`
-to use keys a s d f as the four buttons. Ratings are keys 1-7 on the display window.
-
-Offline tests (no ROS): `python3 -m unittest discover -s test`
+Buttons publish `/button_press`; the experiment publishes `/trial_start`,
+`/display` and `/choice`, and consumes `/motion_status` and `/rating`. Study details
+are in [docs/experiment_plan.md](docs/experiment_plan.md).
