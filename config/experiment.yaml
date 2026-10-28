@@ -105,6 +105,9 @@ experiment:
   # Counterbalancing: block order x colour rotation, balanced list shuffled once with this seed.
   assignment_seed: 2026
   colors: [green, red, orange, yellow]   # rotation 0 = the colours in `blocks` above
+  # false: every participant sees the cubes in the colours above (as on the table and in RViz);
+  # true: colours rotate per participant (classic design; then re-colour the cubes every session).
+  rotate_colors: false
   ready_time: 2.0              # s "Round n of 8 / Get ready" before the countdown (classic: before the reach)
   score_time: 3.0              # s score on the screen after the reach
   rating_timeout: 30.0         # s to answer a 1-7 rating, then it is logged empty

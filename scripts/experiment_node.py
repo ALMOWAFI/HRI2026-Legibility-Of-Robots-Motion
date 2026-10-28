@@ -77,6 +77,8 @@ class ExperimentNode:
         self.button_to_block = list(e["button_to_block"])
 
         self.block_order, self.rotation = E.assignment(participant, e["assignment_seed"])
+        if not e.get("rotate_colors", True):
+            self.rotation = 0  # cubes keep the config colours, as on the table and in RViz
         self.colors = E.rotated_colors(e["colors"], self.rotation)
         seed = E.participant_number(participant)
         self.game = e.get("design", "classic") == "game"
@@ -554,6 +556,9 @@ class ExperimentNode:
         print("Cube colours for this participant (robot frame, place_blocks.py spots):")
         for b, c in zip(self.blocks, self.colors):
             print("  %s: %s" % (b["name"], c))
+        print("Screen, left to right (keys %s): %s"
+              % (" ".join("ASDF"[:len(self.button_to_block)]),
+                 ", ".join("%s %s" % (self.blocks[b]["name"], self.colors[b]) for b in self.button_to_block)))
         print("Order: " + ", ".join("%s-%s" % (t["motion"][0].upper(), self.blocks[t["target_id"]]["name"])
                                    for t in self.trials))
         self.total = self.restore_total() if self.start_trial else 0
