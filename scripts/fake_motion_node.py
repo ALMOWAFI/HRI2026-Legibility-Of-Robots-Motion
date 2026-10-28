@@ -16,7 +16,7 @@ from std_msgs.msg import Empty, String
 from hri_legible_motion.msg import TrialInfo
 
 ONSET = 0.3     # s from the request to the first joint motion (measured on the UR5e: ~0.2-0.3)
-RETURN = 4.0    # s hold + return to the start pose
+RETURN = 8.5    # s hold + return to the start pose (motion.return_speed 0.16: ~5.4 s + 3 s)
 
 
 def main():

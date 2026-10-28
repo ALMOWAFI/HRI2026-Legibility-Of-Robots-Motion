@@ -22,15 +22,17 @@ motion:
   planning_group: arm
   ee_link: arm_tool0
   action: /scaled_pos_joint_traj_controller/follow_joint_trajectory
-  # Start of every reach: tool0 at (0.256, -0.152, 0.113), pointing down: x/y recorded with
-  # tf_echo (2026-10-21), z = the reach plane (IK).
-  start_joints: {arm_shoulder_pan_joint: -3.2137, arm_shoulder_lift_joint: -1.6764, arm_elbow_joint: -2.7247, arm_wrist_1_joint: -0.3065, arm_wrist_2_joint: 1.5665, arm_wrist_3_joint: -0.0689}
+  # Start of every reach: tool0 at (0.256, -0.152, 0.093), pointing down: x/y recorded with
+  # tf_echo (2026-10-21), z = the reach plane (IK; lowered 2 cm on 2026-10-28).
+  start_joints: {arm_shoulder_pan_joint: -3.2138, arm_shoulder_lift_joint: -1.7898, arm_elbow_joint: -2.7365, arm_wrist_1_joint: -0.1813, arm_wrist_2_joint: 1.5655, arm_wrist_3_joint: -0.0688}
   # Pointer on the flange, tip touching the table: tool0 z = 0.051 (tf_echo, 2026-10-21).
   touch_z: 0.063       # tool0 z with the tip on a cube top = 0.051 + cube height 0.012
-  # Reaches are 2D: start pose and hover points all at tool0 z = touch_z + hover_height = 0.113,
-  # i.e. the tip 5 cm above the cube tops for the whole reach.
-  hover_height: 0.05
+  # Reaches are 2D: start pose and hover points all at tool0 z = touch_z + hover_height = 0.093,
+  # i.e. the tip 3 cm above the cube tops for the whole reach (5 cm until 2026-10-28).
+  hover_height: 0.03
   duration: 5.0        # s, every reach (both motion types)
+  return_speed: 0.16   # m/s average, hover point -> start pose after every trial (straight line,
+                       # ~5 s; was setup.speed 0.08, ~11 s). Joint limits are checked when planned.
 
 # Pointer on the flange: in the MoveIt scene (collision checked) and in RViz (spawn_cubes.py).
 tool:

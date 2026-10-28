@@ -15,6 +15,8 @@ from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 from hri_legible_motion.safety import SafetyError, check_direct_move, check_joints, check_path, require_operator
 
+PLAN_ATTEMPTS = 3   # Cartesian planning tries before a reach/return counts as infeasible
+
 
 def joint_state(joints):
     js = JointState()
@@ -62,11 +64,15 @@ class Robot:
             w.position.x, w.position.y, w.position.z = p
             w.orientation = orientation
             waypoints.append(w)
-        res = self._cartesian(header=rospy.Header(frame_id=self.frame),
-                              start_state=RobotState(joint_state=joint_state(start)),
-                              group_name=self.m["planning_group"], link_name=self.m["ee_link"],
-                              waypoints=waypoints, max_step=1.0, jump_threshold=0.0, avoid_collisions=True)
-        pts = res.solution.joint_trajectory.points
+        # The IK solver sometimes gives up partway along a feasible path (random restarts): try again.
+        for _ in range(PLAN_ATTEMPTS):
+            res = self._cartesian(header=rospy.Header(frame_id=self.frame),
+                                  start_state=RobotState(joint_state=joint_state(start)),
+                                  group_name=self.m["planning_group"], link_name=self.m["ee_link"],
+                                  waypoints=waypoints, max_step=1.0, jump_threshold=0.0, avoid_collisions=True)
+            pts = res.solution.joint_trajectory.points
+            if res.fraction >= 1.0 and len(pts) == len(times):
+                break
         if res.fraction < 1.0 or len(pts) != len(times):
             raise SafetyError("Cartesian path failed: %.0f %% planned, %d/%d points (error %d)"
                               % (res.fraction * 100, len(pts), len(times), res.error_code.val))
@@ -80,15 +86,16 @@ class Robot:
                                                     time_from_start=rospy.Duration(t)))
         return traj
 
-    def plan_return(self, start, orientation, lift_to=None):
+    def plan_return(self, start, orientation, lift_to=None, speed=None):
         """From joint dict `start` back to the start pose: optional lift to z = lift_to, then a
-        straight line to the start tool position (slow, stop at corners). The end joints are
-        checked to be within a small direct move of motion.start_joints."""
+        straight line to the start tool position (stop at corners; average `speed`, default the
+        slow setup.speed). The end joints are checked to be within a small direct move of
+        motion.start_joints."""
         from hri_legible_motion.legibility_optimizer import stop_and_go
         home = self.m["start_joints"]
         p, goal = self.fk(start)[0], self.fk(home)[0]
         points = [p] + ([[p[0], p[1], max(p[2], lift_to)]] if lift_to else []) + [goal]
-        times, xyz = stop_and_go(points, self.cfg["setup"]["speed"])
+        times, xyz = stop_and_go(points, speed or self.cfg["setup"]["speed"])
         traj = self.plan(start, times, xyz, orientation)
         end = end_joints(traj)
         names = list(home)

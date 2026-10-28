@@ -78,7 +78,7 @@ def main():
             if np.abs(xyz[:, 2] - plane_z).max() > 1e-3:
                 raise SafetyError("%s path to %s leaves the reach plane z = %.3f" % (motion, b["name"], plane_z))
             traj = robot.plan(start, times, xyz, orientation)
-            robot.plan_return(end_joints(traj), orientation)  # the return must be plannable too
+            back = robot.plan_return(end_joints(traj), orientation, speed=m.get("return_speed"))  # plannable too
             names = traj.joint_names
             q = np.array([p.positions for p in traj.points])
             qd = np.array([p.velocities for p in traj.points])
@@ -87,9 +87,12 @@ def main():
             score = planar_legibility(xyz, goals, target, opt.beta, times=times)
             scores[trajectories.key(motion, b["id"])] = score
             lateral[trajectories.key(motion, b["id"])] = lateral_deviation(xyz, p0, p1)
+            back_qd = np.array([p.velocities for p in back.points])
             print("%-11s %-6s %-6s path %.3f m, peak %.2f m/s, lateral dev %.3f m, max joint %.0f deg/s, "
-                  "legibility %.3f" % (motion, b["name"], b["color"], length, speed.max(),
-                                       lateral_deviation(xyz, p0, p1), np.degrees(np.abs(qd)).max(), score))
+                  "legibility %.3f; return %.1f s, max joint %.0f deg/s"
+                  % (motion, b["name"], b["color"], length, speed.max(), lateral_deviation(xyz, p0, p1),
+                     np.degrees(np.abs(qd)).max(), score, back.points[-1].time_from_start.to_sec(),
+                     np.degrees(np.abs(back_qd)).max()))
             reaches[trajectories.key(motion, b["id"])] = {"times": times, "positions": q,
                                                           "velocities": qd, "xyz": xyz}
             trajs.append(traj)
