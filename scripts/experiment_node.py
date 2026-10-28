@@ -449,7 +449,7 @@ class ExperimentNode:
         with self.lock:
             self.record = record = E.TrialRecord(trial, now)
             self.accepting = False
-        self.show("reach", "Which cube?", "Press its key. You can change your mind.", hud=hud, focus=True)
+        self.show("reach", "Which cube?", "Pick fast: the points drain while the robot moves!", hud=hud, focus=True)
         self.sound("go")
         msg = TrialInfo(trial_id=trial["trial_id"], target_id=target, condition=trial["motion"],
                         bend=float(e["bend"][trial["motion"]]))
@@ -462,6 +462,7 @@ class ExperimentNode:
             record.t_start = t
             with self.lock:
                 self.accepting = True
+            self.display_pub.publish(String(json.dumps({"drain": self.duration})))
             self.sound("loop:thinking")
             self.sound("which_cube")
             status, t = self.wait_status({"done", "failed"}, self.duration + 10.0)

@@ -1,6 +1,7 @@
 # Game sounds: what to record
 
-`sound_node.py` plays `sounds/<name>.wav` when the file exists. Every missing clip falls back to
+`sound_node.py` plays `sounds/<name>.wav` when the file exists. The effects are already here
+(Kenney, CC0, built by `tools/make_game_sounds.py`, see `CREDITS.md`); the voice lines are yours to record. Every missing clip falls back to
 espeak-ng (voice lines) or a synthesized sound (effects), so the game works before anything is
 recorded. Record one clip at a time and drop it in here; restart the launch to pick it up.
 
@@ -14,12 +15,12 @@ Check what is still a fallback: the sound node prints `fallback for: ...` at sta
 
 | File | Text | When |
 |---|---|---|
-| `welcome.wav` | Welcome! The robot will reach for one of the four cubes. Guess which one, as early as you can, by pressing the key shown on that cube. You can change your guess at any time. The longer your guess is right, the more points you get. | welcome screen, before round 1 |
+| `welcome.wav` | Welcome! The robot will reach for one of the four cubes. Guess which one by pressing the key shown on that cube. Be quick: your points drain away while the robot moves, so the sooner you pick the right cube, the more you score. You can change your guess. | welcome screen, before round 1 |
 | `get_ready.wav` | Get ready. | start of each round |
 | `count_3.wav` | Three. | countdown |
 | `count_2.wav` | Two. | countdown |
 | `count_1.wav` | One. | countdown |
-| `which_cube.wav` | Which cube is it going for? | when the robot starts moving (over the thinking loop) |
+| `which_cube.wav` | Which cube? Quick! | when the robot starts moving (over the thinking loop) |
 | `confidence.wav` | How sure were you? | confidence question after the reach |
 | `correct.wav` | Correct! | final guess right |
 | `wrong.wav` | Not this time. | final guess wrong |

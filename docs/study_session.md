@@ -68,7 +68,7 @@ Order for P01-P20 (P = predictable, L = legible):
 |---|---|---|
 | Round screen, 2 s (`ready_time`) | "Round n of 8", score | `get_ready` (round 5: `halfway`, round 8: `last_round`) |
 | Countdown 3-2-1, 1 s each | big number, cubes dimmed | `tick` + `count_3/2/1` |
-| Reach starts (5 s) | "Which cube?", keys A S D F on the cubes | `go`, at onset `which_cube` + `thinking` loop |
+| Reach starts (5 s) | "Which cube?", keys A S D F on the cubes, points bar 100 -> 0 from reach onset | `go`, at onset `which_cube` + `thinking` (ticks speed up) |
 | Player presses keys | chosen cube outlined | `select` |
 | Reach ends | (only with `confidence_rating: true`: "How sure were you?" 1-7) | (`confidence`) |
 | Result, 3 s (`score_time`) | Correct! / Not this time, +points, robot's cube | `correct_fx` + `correct` / `wrong_fx` + `wrong` |
@@ -80,7 +80,8 @@ about 80 points, a correct guess only at the very end almost 0. A wrong guess ea
 while it is selected. Maximum 800 per game. The final screen shows the total and the rank among
 all `P##` players (`<output_dir>/leaderboard.csv`).
 
-Sounds: `sounds/README.md` lists every clip to record. Until a clip is recorded, a fallback
+Sounds: effects are Kenney CC0 samples (`tools/make_game_sounds.py`, `sounds/CREDITS.md`);
+`sounds/README.md` lists the voice lines to record. Until a clip is recorded, a fallback
 plays (espeak-ng voice or a synthesized effect).
 
 ## Checklist before each participant

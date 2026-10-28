@@ -15,14 +15,14 @@ RATE = 44100
 
 # Voice lines: name -> text (exact text to record, also the text-to-speech fallback).
 VOICE = {
-    "welcome": "Welcome! The robot will reach for one of the four cubes. Guess which one, as early "
-               "as you can, by pressing the key shown on that cube. You can change your guess at any time. "
-               "The longer your guess is right, the more points you get.",
+    "welcome": "Welcome! The robot will reach for one of the four cubes. Guess which one by pressing "
+               "the key shown on that cube. Be quick: your points drain away while the robot moves, so "
+               "the sooner you pick the right cube, the more you score. You can change your guess.",
     "get_ready": "Get ready.",
     "count_3": "Three.",
     "count_2": "Two.",
     "count_1": "One.",
-    "which_cube": "Which cube is it going for?",
+    "which_cube": "Which cube? Quick!",
     "confidence": "How sure were you?",
     "correct": "Correct!",
     "wrong": "Not this time.",

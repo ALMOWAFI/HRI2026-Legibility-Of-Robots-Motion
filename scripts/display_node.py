@@ -5,7 +5,8 @@ Sub:  /display       (String, JSON from experiment_node)
         {"screen": "text" | "reach" | "score" | "rating" | "countdown" | "result" | "final",
          "title", "text", "cubes": [colour, ...] left to right as the participant sees them,
          "choice": index or -1, "target": index (result), "number" (countdown),
-         "points" (result, final), "hud": {"round", "rounds", "total"}, "focus": bool}
+         "points" (result, final), "hud": {"round", "rounds", "total"}, "focus": bool,
+         "drain": seconds (reach: the points bar starts emptying now, over that time)}
         A message with "screen" replaces the screen; one without (e.g. {"choice": 2}) updates it.
 Pub:  /rating        (std_msgs/Int32)  keys 1-7 (number row or keypad) while the window has focus
       /button_press  (std_msgs/Int32)  keys a s d f -> 0-3, only with display.keyboard_buttons
@@ -15,6 +16,7 @@ monitor. "focus": true takes the keyboard focus, so the game keys reach this win
 """
 import json
 import queue
+import time
 import tkinter as tk
 
 import rospy
@@ -25,7 +27,8 @@ COLORS = {"orange": "#ff8000", "red": "#e00000", "yellow": "#ffd800", "green": "
 BG, FG, DIM, GOLD = "#101010", "#f0f0f0", "#808080", "#ffc400"
 GOOD, BAD = "#40d040", "#ff5050"
 EMPTY = {"screen": "text", "title": "", "text": "", "cubes": [], "choice": -1, "target": -1,
-         "number": None, "points": None, "hud": None}
+         "number": None, "points": None, "hud": None, "drain": None}
+FRAME_MS = 30   # redraw interval while the points bar drains
 BUTTON_KEYS = "asdf"
 
 
@@ -53,7 +56,8 @@ class Display:
         self.keys = BUTTON_KEYS.upper() if self.button_pub else ""
         self.state = dict(EMPTY, title="Please wait")
         self.pressed = None
-        self.root.after(50, self.poll)
+        self.drain_start = None   # time.monotonic() when the points bar started emptying
+        self.root.after(FRAME_MS, self.poll)
 
     def on_key(self, event):
         key = event.char
@@ -76,12 +80,14 @@ class Display:
                 self.state = dict(EMPTY)
                 self.pressed = None
             self.state.update(msg)
+            if msg.get("drain"):
+                self.drain_start = time.monotonic()
             if msg.get("focus"):
                 self.root.focus_force()
             changed = True
-        if changed:
+        if changed or (self.state["screen"] == "reach" and self.state.get("drain")):
             self.draw()
-        self.root.after(50, self.poll)
+        self.root.after(FRAME_MS, self.poll)
 
     def draw(self):
         c, s = self.canvas, self.state
@@ -99,6 +105,8 @@ class Display:
                             s.get("target", -1) if screen == "result" else -1, dim=screen == "countdown")
         elif screen == "rating":
             self.draw_scale(w, h)
+        if screen == "reach":
+            self.draw_points_bar(w, h)
         if screen == "countdown" and s.get("number") is not None:
             c.create_text(w / 2, h * 0.2, text=str(s["number"]), fill=GOLD,
                           font=("Helvetica", int(h // 5), "bold"))
@@ -109,6 +117,25 @@ class Display:
         if s.get("text"):
             c.create_text(w / 2, h * 0.82, text=s["text"], fill=FG, width=w * 0.8,
                           font=("Helvetica", max(16, h // 28)), justify="center")
+
+    def remaining(self):
+        """Share of the points still possible: 1 until the reach starts, then down to 0."""
+        if not self.state.get("drain") or self.drain_start is None:
+            return 1.0
+        return max(0.0, 1.0 - (time.monotonic() - self.drain_start) / float(self.state["drain"]))
+
+    def draw_points_bar(self, w, h):
+        """Points still possible with the right cube from now on: 100 x the reach time left."""
+        r = self.remaining()
+        x0, x1, y0, y1 = w * 0.1, w * 0.9, h * 0.245, h * 0.315
+        # green -> yellow -> red as it empties
+        red, green = (255, int(255 * 2 * r)) if r < 0.5 else (int(255 * 2 * (1 - r)), 210)
+        color = "#%02x%02x30" % (min(red, 255), min(green, 255))
+        self.canvas.create_rectangle(x0, y0, x1, y1, fill="#2a2a2a", outline=DIM, width=2)
+        if r > 0:
+            self.canvas.create_rectangle(x0, y0, x0 + (x1 - x0) * r, y1, fill=color, outline="")
+        self.canvas.create_text(w / 2, (y0 + y1) / 2, text="%d points left" % round(100 * r),
+                                fill=FG, font=("Helvetica", max(14, h // 28), "bold"))
 
     def draw_hud(self, w, h, hud):
         font = ("Helvetica", max(14, h // 30), "bold")
