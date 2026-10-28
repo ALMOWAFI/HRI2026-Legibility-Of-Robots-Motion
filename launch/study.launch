@@ -19,6 +19,13 @@
   <arg name="terminal" default="xterm -fa Monospace -fs 13 -geometry 120x32+40+40 -T experimenter -e"
        doc="terminal for the experiment node (needs a real terminal for 'go')"/>
 
+  <!-- The lab bringup configures but does not start the controller that publishes
+       /speed_scaling_factor (the pendant's speed slider). Read-only: it commands no joint.
+       Unloaded again when this launch ends. spawn_scaling:=false if it already runs. -->
+  <arg name="spawn_scaling" default="$(eval not dry_run and not sim)"/>
+  <node if="$(arg spawn_scaling)" pkg="controller_manager" type="spawner" name="speed_scaling_spawner"
+        args="speed_scaling_state_controller" output="screen"/>
+
   <node unless="$(arg dry_run)" pkg="hri_legible_motion" type="motion_node.py" name="motion_node"
         output="screen" required="true">
     <rosparam command="load" file="$(arg config)"/>
