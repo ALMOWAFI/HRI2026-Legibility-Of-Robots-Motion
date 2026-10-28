@@ -6,7 +6,8 @@ Sub:  /display       (String, JSON from experiment_node)
          "title", "text", "cubes": [colour, ...] left to right as the participant sees them,
          "choice": index or -1, "target": index (result), "number" (countdown),
          "points" (result, final), "hud": {"round", "rounds", "total"}, "focus": bool,
-         "drain": seconds (reach: the points bar starts emptying now, over that time)}
+         "drain": seconds (reach: the points bar starts emptying now, over that time),
+         "points_max", "exponent" (reach: bar = points_max x (1 - t/T)^exponent)}
         A message with "screen" replaces the screen; one without (e.g. {"choice": 2}) updates it.
 Pub:  /rating        (std_msgs/Int32)  keys 1-7 (number row or keypad) while the window has focus
       /button_press  (std_msgs/Int32)  keys a s d f -> 0-3, only with display.keyboard_buttons
@@ -27,7 +28,7 @@ COLORS = {"orange": "#ff8000", "red": "#e00000", "yellow": "#ffd800", "green": "
 BG, FG, DIM, GOLD = "#101010", "#f0f0f0", "#808080", "#ffc400"
 GOOD, BAD = "#40d040", "#ff5050"
 EMPTY = {"screen": "text", "title": "", "text": "", "cubes": [], "choice": -1, "target": -1,
-         "number": None, "points": None, "hud": None, "drain": None}
+         "number": None, "points": None, "hud": None, "drain": None, "points_max": 100, "exponent": 1.0}
 FRAME_MS = 30   # redraw interval while the points bar drains
 BUTTON_KEYS = "asdf"
 
@@ -125,8 +126,8 @@ class Display:
         return max(0.0, 1.0 - (time.monotonic() - self.drain_start) / float(self.state["drain"]))
 
     def draw_points_bar(self, w, h):
-        """Points still possible with the right cube from now on: 100 x the reach time left."""
-        r = self.remaining()
+        """Points still possible with the right cube from now on (experiment.points_left())."""
+        r = self.remaining() ** float(self.state.get("exponent") or 1.0)
         x0, x1, y0, y1 = w * 0.1, w * 0.9, h * 0.245, h * 0.315
         # green -> yellow -> red as it empties
         red, green = (255, int(255 * 2 * r)) if r < 0.5 else (int(255 * 2 * (1 - r)), 210)
@@ -134,7 +135,7 @@ class Display:
         self.canvas.create_rectangle(x0, y0, x1, y1, fill="#2a2a2a", outline=DIM, width=2)
         if r > 0:
             self.canvas.create_rectangle(x0, y0, x0 + (x1 - x0) * r, y1, fill=color, outline="")
-        self.canvas.create_text(w / 2, (y0 + y1) / 2, text="%d points left" % round(100 * r),
+        self.canvas.create_text(w / 2, (y0 + y1) / 2, text="%d points left" % round(float(self.state.get("points_max") or 100) * r),
                                 fill=FG, font=("Helvetica", max(14, h // 28), "bold"))
 
     def draw_hud(self, w, h, hud):

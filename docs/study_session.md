@@ -74,11 +74,12 @@ Order for P01-P20 (P = predictable, L = legible):
 | Result, 3 s (`score_time`) | Correct! / Not this time, +points, robot's cube | `correct_fx` + `correct` / `wrong_fx` + `wrong` |
 | Robot returns to the start pose | | |
 
-Guesses count only from reach onset, not during the countdown. Points = 100 x the fraction of
-the 5 s reach during which the selected cube was the robot's cube: a correct guess at 1 s gives
-about 80 points, a correct guess only at the very end almost 0. A wrong guess earns nothing
-while it is selected. Maximum 800 per game. The final screen shows the total and the rank among
-all `P##` players (`<output_dir>/leaderboard.csv`).
+Guesses count only from reach onset, not during the countdown. Points drain while the robot
+moves: points left = 1000 x (1 - t/5 s)^2 (`experiment.points_max`, `points_exponent`), so a
+right cube picked at onset and kept earns 1000, at 1 s 640, at 2 s 360, at 3 s 160. A wrong pick
+earns nothing while it is selected; switching to the right cube later earns what is left then.
+The bar on the screen shows this number. Maximum 8000 per game. The final screen shows the
+total and the rank among all `P##` players (`<output_dir>/leaderboard.csv`).
 
 Sounds: effects are Kenney CC0 samples (`tools/make_game_sounds.py`, `sounds/CREDITS.md`);
 `sounds/README.md` lists the voice lines to record. Until a clip is recorded, a fallback

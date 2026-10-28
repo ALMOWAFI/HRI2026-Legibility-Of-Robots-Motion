@@ -95,6 +95,8 @@ class ExperimentNode:
         self.commands = queue.Queue()   # experimenter's lines while the session runs by itself
         self.paused = False
         self.total = 0
+        self.points_max = float(e.get("points_max", 100))   # per round (game)
+        self.exponent = float(e.get("points_exponent", 1.0))  # > 1: points drain faster
         self.start_trial = start_trial
 
         traj_path = None
@@ -447,9 +449,10 @@ class ExperimentNode:
         self.drain_statuses()
         now = rospy.get_time()
         with self.lock:
-            self.record = record = E.TrialRecord(trial, now)
+            self.record = record = E.TrialRecord(trial, now, self.points_max, self.exponent)
             self.accepting = False
-        self.show("reach", "Which cube?", "Pick fast: the points drain while the robot moves!", hud=hud, focus=True)
+        self.show("reach", "Which cube?", "Pick fast: the points drain while the robot moves!", hud=hud, focus=True,
+                  points_max=self.points_max, exponent=self.exponent)
         self.sound("go")
         msg = TrialInfo(trial_id=trial["trial_id"], target_id=target, condition=trial["motion"],
                         bend=float(e["bend"][trial["motion"]]))
@@ -462,7 +465,7 @@ class ExperimentNode:
             record.t_start = t
             with self.lock:
                 self.accepting = True
-            self.display_pub.publish(String(json.dumps({"drain": self.duration})))
+            self.display_pub.publish(String(json.dumps({"drain": self.duration})))  # bar starts emptying
             self.sound("loop:thinking")
             self.sound("which_cube")
             status, t = self.wait_status({"done", "failed"}, self.duration + 10.0)

@@ -196,6 +196,30 @@ class TestGameSchedule(unittest.TestCase):
     def test_points(self):
         self.assertEqual((E.points(0.0), E.points(0.724), E.points(1.0)), (0, 72, 100))
 
+    def test_points_left(self):
+        self.assertAlmostEqual(E.points_left(0.2, 1000, 2.0), 640)
+        self.assertAlmostEqual(E.points_left(0.4, 1000, 2.0), 360)
+        self.assertEqual((E.points_left(0.0, 1000, 2.0), E.points_left(1.2, 1000, 2.0)), (1000, 0))
+
+    def test_game_points_quadratic(self):
+        def game(presses, T=5.0):
+            r = E.TrialRecord(trial(target=2), 9.0, points_max=1000, exponent=2.0)
+            r.t_start = 10.0
+            for t, c in presses:
+                r.add_choice(t, c)
+            return r.measures(T)["points"]
+        self.assertEqual(game([(11.0, 2)]), 640)              # right at 1 s, kept
+        self.assertEqual(game([(10.0, 2)]), 1000)             # right at onset
+        self.assertEqual(game([(11.0, 1), (12.0, 2)]), 360)   # wrong first, right at 2 s
+        self.assertEqual(game([(11.0, 2), (12.0, 1)]), 280)   # right 1-2 s only: 640 - 360
+        self.assertEqual(game([]), 0)
+
+    def test_default_points_stay_linear(self):
+        r = E.TrialRecord(trial(target=2), 9.0)
+        r.t_start = 10.0
+        r.add_choice(11.0, 2)
+        self.assertEqual(r.measures(4.0)["points"], 75)
+
 
 class TestLeaderboard(unittest.TestCase):
     def test_rank(self):

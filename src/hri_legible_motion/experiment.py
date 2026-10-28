@@ -144,8 +144,14 @@ def make_game_schedule(participant, targets, seed, max_motion_in_row=2):
             for i, (motion, target) in enumerate(game_order(participant, targets, seed, max_motion_in_row))]
 
 
+def points_left(u, points_max=100, exponent=1.0):
+    """Points still possible at reach fraction u (0..1): what a right pick made now and kept
+    to the end earns. exponent > 1 drains faster, most of all at the start."""
+    return points_max * (1.0 - min(max(u, 0.0), 1.0)) ** exponent
+
+
 def points(f):
-    """Game points of a trial: 100 x the fraction of the reach the selected cube was right."""
+    """Linear game points: 100 x the fraction of the reach the selected cube was right."""
     return int(round(100 * f))
 
 
@@ -176,8 +182,9 @@ class Leaderboard:
 class TrialRecord:
     """Choices of one trial and the reach timing; computes the trial measures."""
 
-    def __init__(self, trial, t_trial_start):
+    def __init__(self, trial, t_trial_start, points_max=100, exponent=1.0):
         self.trial = trial
+        self.points_max, self.exponent = points_max, exponent  # game scoring, see points_left()
         self.t_trial_start = t_trial_start
         self.t_start = None     # reach onset (motion node 'executing')
         self.t_done = None      # motion node 'done' / 'failed'
@@ -217,6 +224,12 @@ class TrialRecord:
         correct_time = sum(min(t1, nxt) - t for (t, c), (nxt, _) in zip(steps, steps[1:] + [(t1, None)])
                            if c == target)
         f = correct_time / duration
+        # Points: each correct stretch [a, b] earns points_left(a) - points_left(b), so a right
+        # pick at u kept to the end earns points_left(u) (exponent 1, max 100: 100 f).
+        u = lambda t: (t - t0) / duration
+        earned = sum(points_left(u(t), self.points_max, self.exponent)
+                     - points_left(u(min(t1, nxt)), self.points_max, self.exponent)
+                     for (t, c), (nxt, _) in zip(steps, steps[1:] + [(t1, None)]) if c == target)
         first = next((t for t, c in steps if c == target), None)
         final = steps[-1][1]
         # Commit = start of the final correct stretch (1.0 if the reach did not end on it).
@@ -225,7 +238,8 @@ class TrialRecord:
         return {"f": f, "score": int(round(10 * f)), "t_first_correct": rel(first),
                 "t_commit": rel(commit),
                 "n_switches": max(0, sum(1 for t, _ in self.choices if t <= t1) - 1),
-                "final_choice": final, "final_correct": int(final == target), "points": points(f)}
+                "final_choice": final, "final_correct": int(final == target),
+                "points": int(round(earned))}
 
     def row(self, participant_id, duration, blocks, colors):
         target = self.trial["target_id"]
