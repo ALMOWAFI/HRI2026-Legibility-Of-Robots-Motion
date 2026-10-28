@@ -97,7 +97,7 @@ experiment:
   design: game
   max_motion_in_row: 2         # game: same motion type at most this often in a row
   countdown: 3                 # game: 3-2-1 before every reach (1 s per number)
-  confidence_rating: true      # game: "How sure were you?" 1-7 after every reach, before the result
+  confidence_rating: false     # game: true = "How sure were you?" 1-7 after every reach, before the result
   leaderboard: true            # game: <output_dir>/leaderboard.csv, final screen shows the rank (P## ids only)
   inter_trial_time: 1.0        # s between rounds in --auto mode
   reps_per_block: 4            # classic: each cube this often per main block -> 16 trials per block

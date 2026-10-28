@@ -476,7 +476,7 @@ class ExperimentNode:
             return record
 
         m = record.measures(self.duration)
-        if e.get("confidence_rating", True):
+        if e.get("confidence_rating", False):
             self.show("rating", "How sure were you?", "1 = just guessing   ...   7 = completely sure", hud=hud)
             self.sound("confidence")
             record.confidence = self.wait_rating(float(e["rating_timeout"]))

@@ -70,7 +70,7 @@ Order for P01-P20 (P = predictable, L = legible):
 | Countdown 3-2-1, 1 s each | big number, cubes dimmed | `tick` + `count_3/2/1` |
 | Reach starts (5 s) | "Which cube?", keys A S D F on the cubes | `go`, at onset `which_cube` + `thinking` loop |
 | Player presses keys | chosen cube outlined | `select` |
-| Reach ends | "How sure were you?" 1-7 (`confidence_rating`) | `confidence` |
+| Reach ends | (only with `confidence_rating: true`: "How sure were you?" 1-7) | (`confidence`) |
 | Result, 3 s (`score_time`) | Correct! / Not this time, +points, robot's cube | `correct_fx` + `correct` / `wrong_fx` + `wrong` |
 | Robot returns to the start pose | | |
 
