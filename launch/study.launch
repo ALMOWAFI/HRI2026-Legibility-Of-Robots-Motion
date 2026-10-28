@@ -1,0 +1,43 @@
+<launch>
+  <!-- One study session (experiment.design: game, 8 rounds), everything from one command:
+         roslaunch hri_legible_motion study.launch participant:=P07
+       Starts motion, display, sound and the experiment node; the experiment node opens in its
+       own terminal window, where the experimenter types 'go' once. Then all rounds run by
+       themselves (p + Enter = pause, q + Enter = stop, e-stop = stop the robot).
+
+       Robot first (separate terminals, as before):
+         ~/scripts/launch_hardware.sh
+         ~/scripts/resend_robot_program.sh      (pendant in Remote Control)
+       Dry run without the robot (fake motion node, nothing moves):
+         roslaunch hri_legible_motion study.launch participant:=dry dry_run:=true
+       Resume after a crash:  start_trial:=N (0-based index of the round to repeat) -->
+  <arg name="participant" doc="e.g. P07; the round order follows from the number"/>
+  <arg name="config" default="$(find hri_legible_motion)/config/experiment.yaml"/>
+  <arg name="dry_run" default="false" doc="true: fake motion node, no robot / MoveIt needed"/>
+  <arg name="sim" default="false" doc="true: demo.launch instead of the UR driver (no speed-scaling check)"/>
+  <arg name="start_trial" default="0"/>
+  <arg name="terminal" default="xterm -fa Monospace -fs 13 -geometry 120x32+40+40 -T experimenter -e"
+       doc="terminal for the experiment node (needs a real terminal for 'go')"/>
+
+  <node unless="$(arg dry_run)" pkg="hri_legible_motion" type="motion_node.py" name="motion_node"
+        output="screen" required="true">
+    <rosparam command="load" file="$(arg config)"/>
+    <param name="require_speed_scaling" value="$(eval not sim)"/>
+  </node>
+  <node if="$(arg dry_run)" pkg="hri_legible_motion" type="fake_motion_node.py" name="motion_node"
+        output="screen" required="true">
+    <rosparam command="load" file="$(arg config)"/>
+  </node>
+
+  <node pkg="hri_legible_motion" type="display_node.py" name="display_node" output="screen" required="true">
+    <rosparam command="load" file="$(arg config)"/>
+  </node>
+
+  <node pkg="hri_legible_motion" type="sound_node.py" name="sound_node" output="screen">
+    <rosparam command="load" file="$(arg config)"/>
+  </node>
+
+  <node pkg="hri_legible_motion" type="experiment_node.py" name="experiment_node" required="true"
+        launch-prefix="$(arg terminal)"
+        args="$(arg participant) --auto --config $(arg config) --start-trial $(arg start_trial)"/>
+</launch>
