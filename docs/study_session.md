@@ -86,10 +86,10 @@ plays (espeak-ng voice or a synthesized effect).
 ## Checklist before each participant
 
 1. Robot stack running, pendant in Remote Control, **speed slider 100 %**, e-stop in reach.
-2. `tools/place_blocks.py --execute`: cubes placed at the spots in the config colours (B1 green,
+2. `tools/place_blocks.py --execute`: cubes placed at the spots (robot's right side since 2026-10-28) in the config colours (B1 green,
    B2 red, B3 orange, B4 yellow; `rotate_colors: false`), as in RViz. Seen from the participant's
    side (facing the robot, like the RViz view) the screen shows them left to right as
-   B4 yellow (A), B3 orange (S), B2 red (D), B1 green (F); the experiment node prints this
+   B1 green (A), B2 red (S), B3 orange (D), B4 yellow (F); the experiment node prints this
    order at startup.
 3. Display on the participant's monitor (`display.geometry`), sound audible, volume set.
 4. `roslaunch hri_legible_motion study.launch participant:=P##`.
