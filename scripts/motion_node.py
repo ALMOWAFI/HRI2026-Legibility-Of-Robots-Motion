@@ -43,6 +43,7 @@ class MotionNode:
         self.start = cfg["motion"]["start_joints"]
         self.tolerance = cfg["safety"]["start_tolerance_deg"]
         self.require_scaling = rospy.get_param("~require_speed_scaling", True)
+        self.return_speed = cfg["motion"].get("return_speed")  # after a trial; None = setup.speed
 
         path = cfg["trajectories"]
         if not os.path.isabs(path):
@@ -143,7 +144,8 @@ class MotionNode:
         self.status("done")
 
         rospy.sleep(HOLD_TIME)
-        self.robot.execute(self.robot.plan_return(self.robot.current_joints(), self.orientation))
+        self.robot.execute(self.robot.plan_return(self.robot.current_joints(), self.orientation,
+                                                  speed=self.return_speed))
         self.robot.move_joints(self.start, 2.0)  # residual correction, a fraction of a degree
         self.robot.check_at(self.start, "the start pose")
         self.status("home")

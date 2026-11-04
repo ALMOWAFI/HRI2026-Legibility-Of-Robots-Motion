@@ -4,6 +4,7 @@ trial schedule, per-trial choice record + scores, output files.
 Times are seconds (floats); experiment_node.py feeds in rospy times.
 """
 import csv
+import itertools
 import os
 import random
 import re
@@ -14,7 +15,7 @@ TRIAL_FIELDS = ["participant_id", "trial_id", "phase", "block", "index_in_phase"
                 "target_id", "target_name", "target_color", "status",
                 "t_trial_start", "t_start", "t_end", "t_done", "f", "score",
                 "t_first_correct", "t_commit", "n_switches", "final_choice", "final_correct",
-                "confidence", "naturalness"]
+                "confidence", "naturalness", "points"]
 CHOICE_FIELDS = ["participant_id", "trial_id", "stamp", "t_rel", "choice_id"]
 
 
@@ -93,13 +94,97 @@ def make_schedule(block_order, targets, reps, seed, limit=2):
     return trials
 
 
+# --- game: 8 trials, every cube x every motion once --------------------------------
+
+# Balanced Latin square (Williams design) for 4 cubes: every cube once in every position
+# and every ordered pair of cubes once as neighbours, over 4 rows.
+WILLIAMS_4 = [[0, 1, 3, 2], [1, 2, 0, 3], [2, 3, 1, 0], [3, 0, 2, 1]]
+
+
+def max_motion_run(items):
+    return max_run([m for m, _ in items])
+
+
+def game_order(participant, targets, seed, max_motion_in_row=2):
+    """8 (motion, target) pairs for one participant, reproducible from (participant, seed).
+
+    - trials 1-4: every cube once, 2 predictable + 2 legible; trials 5-8: every cube once
+      with the other motion, so each half has 2 + 2 and practice effects hit both equally
+    - the same cube never twice in a row, the same motion at most `max_motion_in_row` times
+    - first-half cube order: Williams-square row; first motion alternates between
+      participants (odd numbers start predictable), so groups of 8 participants are balanced
+    """
+    if len(targets) != 4:
+        raise ValueError("The game design needs exactly 4 cubes.")
+    j = (participant_number(participant) - 1) % 8
+    first = MOTIONS[j % 2]
+    cubes = [targets[i] for i in WILLIAMS_4[j // 2]]
+    rng = random.Random("%s/%d" % (seed, participant_number(participant)))
+    candidates = []
+    for motions in sorted(set(itertools.permutations(MOTIONS * 2))):
+        if motions[0] != first:
+            continue
+        half1 = list(zip(motions, cubes))
+        if max_motion_run(half1) > max_motion_in_row:
+            continue
+        other = {t: MOTIONS[1 - MOTIONS.index(m)] for m, t in half1}
+        for perm in itertools.permutations(cubes):
+            if perm[0] == cubes[-1]:
+                continue
+            items = half1 + [(other[t], t) for t in perm]
+            if max_motion_run(items) <= max_motion_in_row:
+                candidates.append(items)
+    return rng.choice(candidates)
+
+
+def make_game_schedule(participant, targets, seed, max_motion_in_row=2):
+    """Trials in the format of make_schedule(): phase 'game', block 'G'."""
+    return [{"trial_id": i, "phase": "game", "block": "G", "index_in_phase": i,
+             "motion": motion, "target_id": target}
+            for i, (motion, target) in enumerate(game_order(participant, targets, seed, max_motion_in_row))]
+
+
+def points_left(u, points_max=100, exponent=1.0):
+    """Points still possible at reach fraction u (0..1): what a right pick made now and kept
+    to the end earns. exponent > 1 drains faster, most of all at the start."""
+    return points_max * (1.0 - min(max(u, 0.0), 1.0)) ** exponent
+
+
+def points(f):
+    """Linear game points: 100 x the fraction of the reach the selected cube was right."""
+    return int(round(100 * f))
+
+
+class Leaderboard:
+    """<output_dir>/leaderboard.csv: one line per finished game. Only ranks are shown."""
+    FIELDS = ["participant_id", "date", "points"]
+
+    def __init__(self, path):
+        self.path = path
+
+    def scores(self, exclude=None):
+        if not os.path.exists(self.path):
+            return []
+        with open(self.path) as f:
+            return [int(r["points"]) for r in csv.DictReader(f) if r["participant_id"] != exclude]
+
+    def add(self, participant_id, date, total):
+        """Store the total; returns (rank, number of players, best before this game)."""
+        others = self.scores(exclude=participant_id)
+        SessionLog._append(self.path, self.FIELDS, [{"participant_id": participant_id, "date": date,
+                                                     "points": total}])
+        rank = 1 + sum(1 for s in others if s > total)
+        return rank, len(others) + 1, max(others) if others else None
+
+
 # --- one trial (§3.4) ----------------------------------------------------------------
 
 class TrialRecord:
     """Choices of one trial and the reach timing; computes the trial measures."""
 
-    def __init__(self, trial, t_trial_start):
+    def __init__(self, trial, t_trial_start, points_max=100, exponent=1.0):
         self.trial = trial
+        self.points_max, self.exponent = points_max, exponent  # game scoring, see points_left()
         self.t_trial_start = t_trial_start
         self.t_start = None     # reach onset (motion node 'executing')
         self.t_done = None      # motion node 'done' / 'failed'
@@ -139,6 +224,12 @@ class TrialRecord:
         correct_time = sum(min(t1, nxt) - t for (t, c), (nxt, _) in zip(steps, steps[1:] + [(t1, None)])
                            if c == target)
         f = correct_time / duration
+        # Points: each correct stretch [a, b] earns points_left(a) - points_left(b), so a right
+        # pick at u kept to the end earns points_left(u) (exponent 1, max 100: 100 f).
+        u = lambda t: (t - t0) / duration
+        earned = sum(points_left(u(t), self.points_max, self.exponent)
+                     - points_left(u(min(t1, nxt)), self.points_max, self.exponent)
+                     for (t, c), (nxt, _) in zip(steps, steps[1:] + [(t1, None)]) if c == target)
         first = next((t for t, c in steps if c == target), None)
         final = steps[-1][1]
         # Commit = start of the final correct stretch (1.0 if the reach did not end on it).
@@ -147,7 +238,8 @@ class TrialRecord:
         return {"f": f, "score": int(round(10 * f)), "t_first_correct": rel(first),
                 "t_commit": rel(commit),
                 "n_switches": max(0, sum(1 for t, _ in self.choices if t <= t1) - 1),
-                "final_choice": final, "final_correct": int(final == target)}
+                "final_choice": final, "final_correct": int(final == target),
+                "points": int(round(earned))}
 
     def row(self, participant_id, duration, blocks, colors):
         target = self.trial["target_id"]

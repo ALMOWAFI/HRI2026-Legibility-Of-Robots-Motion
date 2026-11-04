@@ -22,15 +22,17 @@ motion:
   planning_group: arm
   ee_link: arm_tool0
   action: /scaled_pos_joint_traj_controller/follow_joint_trajectory
-  # Start of every reach: tool0 at (0.256, -0.152, 0.113), pointing down: x/y recorded with
-  # tf_echo (2026-10-21), z = the reach plane (IK).
-  start_joints: {arm_shoulder_pan_joint: -3.2137, arm_shoulder_lift_joint: -1.6764, arm_elbow_joint: -2.7247, arm_wrist_1_joint: -0.3065, arm_wrist_2_joint: 1.5665, arm_wrist_3_joint: -0.0689}
+  # Start of every reach: tool0 at (0.256, -0.152, 0.093), pointing down: x/y recorded with
+  # tf_echo (2026-10-21), z = the reach plane (IK; lowered 2 cm on 2026-10-28).
+  start_joints: {arm_shoulder_pan_joint: -3.2138, arm_shoulder_lift_joint: -1.7898, arm_elbow_joint: -2.7365, arm_wrist_1_joint: -0.1813, arm_wrist_2_joint: 1.5655, arm_wrist_3_joint: -0.0688}
   # Pointer on the flange, tip touching the table: tool0 z = 0.051 (tf_echo, 2026-10-21).
   touch_z: 0.063       # tool0 z with the tip on a cube top = 0.051 + cube height 0.012
-  # Reaches are 2D: start pose and hover points all at tool0 z = touch_z + hover_height = 0.113,
-  # i.e. the tip 5 cm above the cube tops for the whole reach.
-  hover_height: 0.05
+  # Reaches are 2D: start pose and hover points all at tool0 z = touch_z + hover_height = 0.093,
+  # i.e. the tip 3 cm above the cube tops for the whole reach (5 cm until 2026-10-28).
+  hover_height: 0.03
   duration: 5.0        # s, every reach (both motion types)
+  return_speed: 0.16   # m/s average, hover point -> start pose after every trial (straight line,
+                       # ~5 s; was setup.speed 0.08, ~11 s). Joint limits are checked when planned.
 
 # Pointer on the flange: in the MoveIt scene (collision checked) and in RViz (spawn_cubes.py).
 tool:
@@ -63,9 +65,9 @@ trajectories: config/trajectories.npz   # relative to the package
 # tools/precompute_trajectories.py (offline, for the study). Workspace box: safety above.
 optimizer:
   beta: 10.0            # 1/m, observer model of the Dragan score
-  length_ratio: 1.04    # legible path at most 4 % longer than the straight reach: more breaks the
+  length_ratio: 1.9    # legible path at most 4 % longer than the straight reach: more breaks the
                         # 60 deg/s joint limit for the cubes at 0.91 m (2026-10-21 layout, 5 s)
-  efficiency_weight: 0.2  # soft efficiency penalty: maximize legibility - lambda * (L / L_straight - 1);
+  efficiency_weight: 0.1  # soft efficiency penalty: maximize legibility - lambda * (L / L_straight - 1);
                         # higher = closer to the straight reach (0.2: edge cubes keep their bend)
   protect_goal_ranking: true  # do not introduce a preference for a competing goal
   n_starts: 5           # deterministic local searches; more than one avoids a bad initial bend
@@ -90,12 +92,28 @@ experiment:
   # Bend direction per target (+1 = +y, the robot's left); also nominal, the optimizer picks the
   # side itself (edge cubes outward, middle cubes toward the outer neighbour, as below).
   bend_side: [1, 1, -1, -1]
-  reps_per_block: 4            # each cube this often per main block -> 16 trials per block
+  # game: 8 rounds, every cube once per motion type, played as a game with countdown, sounds,
+  #       points and keyboard (study.launch). Order: experiment.game_order() (4 + 4 halves,
+  #       Williams-square cube order, first motion alternates between participants).
+  # classic: warm-up + two motion blocks + announced block (reps_per_block, docs/experiment_plan.md).
+  design: game
+  max_motion_in_row: 2         # game: same motion type at most this often in a row
+  countdown: 3                 # game: 3-2-1 before every reach (1 s per number)
+  confidence_rating: false     # game: true = "How sure were you?" 1-7 after every reach, before the result
+  leaderboard: true            # game: <output_dir>/leaderboard.csv, final screen shows the rank (P## ids only)
+  inter_trial_time: 1.0        # s between rounds in --auto mode
+  points_max: 1000             # game: points of a round with the right cube picked at reach onset
+  points_exponent: 2.0         # game: points left = points_max x (1 - t/T)^exponent; 2 = 640 left after
+                               # 1 s, 360 after 2 s (1 = linear: 800, 600). The bar shows the same curve.
+  reps_per_block: 4            # classic: each cube this often per main block -> 16 trials per block
   max_same_in_row: 2
   # Counterbalancing: block order x colour rotation, balanced list shuffled once with this seed.
   assignment_seed: 2026
   colors: [green, red, orange, yellow]   # rotation 0 = the colours in `blocks` above
-  ready_time: 1.0              # s "Get ready" on the screen before the reach
+  # false: every participant sees the cubes in the colours above (as on the table and in RViz);
+  # true: colours rotate per participant (classic design; then re-colour the cubes every session).
+  rotate_colors: false
+  ready_time: 2.0              # s "Round n of 8 / Get ready" before the countdown (classic: before the reach)
   score_time: 3.0              # s score on the screen after the reach
   rating_timeout: 30.0         # s to answer a 1-7 rating, then it is logged empty
   record_bag: true             # rosbag of the session (plan §2.5)
@@ -104,4 +122,12 @@ experiment:
 
 display:
   fullscreen: true
-  keyboard_buttons: false      # true: keys a s d f also publish /button_press 0-3 (dry runs without buttons)
+  geometry: "+1920+0"          # window position before fullscreen: the participant's (second) monitor
+  keyboard_buttons: true       # keys a s d f publish /button_press 0-3 (the game's input; false = push buttons only)
+
+# sound_node.py: sounds/<name>.wav if recorded (sounds/README.md), else espeak-ng / synthesized.
+sound:
+  enabled: true
+  dir: sounds                  # relative to the package
+  voice: en-us                 # espeak-ng voice of the fallback
+  player: aplay

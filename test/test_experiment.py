@@ -158,5 +158,77 @@ class TestLog(unittest.TestCase):
         self.assertEqual(row["naturalness"], 5)
 
 
+class TestGameSchedule(unittest.TestCase):
+    PARTICIPANTS = ["P%02d" % k for k in range(1, 41)]
+
+    def test_every_cube_once_per_motion(self):
+        for p in self.PARTICIPANTS:
+            trials = E.make_game_schedule(p, TARGETS, 2026)
+            self.assertEqual(len(trials), 8)
+            self.assertEqual(sorted((t["motion"], t["target_id"]) for t in trials),
+                             sorted((m, c) for m in E.MOTIONS for c in TARGETS))
+            self.assertEqual([t["trial_id"] for t in trials], list(range(8)))
+
+    def test_halves_balanced(self):
+        for p in self.PARTICIPANTS:
+            order = E.game_order(p, TARGETS, 2026)
+            for half in (order[:4], order[4:]):
+                self.assertEqual(sorted(t for _, t in half), TARGETS)
+                self.assertEqual(collections.Counter(m for m, _ in half), {"predictable": 2, "legible": 2})
+
+    def test_runs(self):
+        for p in self.PARTICIPANTS:
+            order = E.game_order(p, TARGETS, 2026)
+            self.assertEqual(E.max_run([t for _, t in order]), 1)
+            self.assertLessEqual(E.max_motion_run(order), 2)
+
+    def test_counterbalanced_over_8_participants(self):
+        orders = [E.game_order(p, TARGETS, 2026) for p in self.PARTICIPANTS[:8]]
+        self.assertEqual(collections.Counter(o[0][0] for o in orders), {"predictable": 4, "legible": 4})
+        for position in range(4):  # Williams square: every cube in every first-half position twice
+            self.assertEqual(collections.Counter(o[position][1] for o in orders), {t: 2 for t in TARGETS})
+
+    def test_reproducible(self):
+        self.assertEqual(E.game_order("P05", TARGETS, 2026), E.game_order("P05", TARGETS, 2026))
+        self.assertEqual(E.game_order("P05", [10, 11, 12, 13], 2026)[0][1] - 10,
+                         E.game_order("P05", TARGETS, 2026)[0][1])
+
+    def test_points(self):
+        self.assertEqual((E.points(0.0), E.points(0.724), E.points(1.0)), (0, 72, 100))
+
+    def test_points_left(self):
+        self.assertAlmostEqual(E.points_left(0.2, 1000, 2.0), 640)
+        self.assertAlmostEqual(E.points_left(0.4, 1000, 2.0), 360)
+        self.assertEqual((E.points_left(0.0, 1000, 2.0), E.points_left(1.2, 1000, 2.0)), (1000, 0))
+
+    def test_game_points_quadratic(self):
+        def game(presses, T=5.0):
+            r = E.TrialRecord(trial(target=2), 9.0, points_max=1000, exponent=2.0)
+            r.t_start = 10.0
+            for t, c in presses:
+                r.add_choice(t, c)
+            return r.measures(T)["points"]
+        self.assertEqual(game([(11.0, 2)]), 640)              # right at 1 s, kept
+        self.assertEqual(game([(10.0, 2)]), 1000)             # right at onset
+        self.assertEqual(game([(11.0, 1), (12.0, 2)]), 360)   # wrong first, right at 2 s
+        self.assertEqual(game([(11.0, 2), (12.0, 1)]), 280)   # right 1-2 s only: 640 - 360
+        self.assertEqual(game([]), 0)
+
+    def test_default_points_stay_linear(self):
+        r = E.TrialRecord(trial(target=2), 9.0)
+        r.t_start = 10.0
+        r.add_choice(11.0, 2)
+        self.assertEqual(r.measures(4.0)["points"], 75)
+
+
+class TestLeaderboard(unittest.TestCase):
+    def test_rank(self):
+        with tempfile.TemporaryDirectory() as d:
+            board = E.Leaderboard(os.path.join(d, "leaderboard.csv"))
+            self.assertEqual(board.add("P01", "2026-10-28", 300), (1, 1, None))
+            self.assertEqual(board.add("P02", "2026-10-28", 500), (1, 2, 300))
+            self.assertEqual(board.add("P03", "2026-10-28", 400), (2, 3, 500))
+
+
 if __name__ == "__main__":
     unittest.main()
