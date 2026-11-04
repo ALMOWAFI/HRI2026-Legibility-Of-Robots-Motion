@@ -129,3 +129,29 @@ plays (espeak-ng voice or a synthesized effect).
 10. At the end: Enter in the experimenter window closes everything. Data for both blocks in
    `~/hri_data/P##/` (`session.yaml`, `trials.csv` with `block` A/B and `points`,
    `choices.csv`, `session.bag`). Second questionnaire.
+
+## Analysing the data
+
+```bash
+sudo apt install python3-statsmodels  # once (Debian); without it the mixed models are skipped
+python3 tools/analyze.py --questionnaires questionnaires.csv
+```
+
+Reads every `~/hri_data/P##/` folder (ids that are not `P##` are dry runs and skipped),
+keeps the last attempt of each game round, drops rounds that did not finish and
+participants with fewer than 6 finished rounds (`--min-trials`, `--exclude P05`), and
+writes to `build/analysis/`:
+
+- `trials.csv`: the analysed trials, with `legible`, `edge` (B1/B4), `second` (block B),
+  `first_motion`, `seen_in_practice` and `never_correct` (then `t_first_correct` = 1.0).
+- `descriptives.csv`, `participant_means.csv`; `tests.csv`: per participant legible -
+  predictable on all, edge and middle cubes and the edge - middle difference (bootstrap
+  95 % CI, d_z, paired t, Wilcoxon).
+- `models.txt`: `f`, `t_first_correct`, `t_commit` ~ legible * edge + second with a
+  participant random intercept (+ legible slope when it fits), the order check
+  (legible:second), and a logistic GEE for `final_correct`.
+- `manipulation.csv`: lateral deviation and model legibility of every reach.
+- `questionnaire_tests.csv`: paired Wilcoxon per scale plus the order check.
+  `questionnaires.csv` has one row per participant and block: `participant_id`, `motion`
+  (predictable | legible), then one numeric column per scale or item.
+- `f_by_cube.png`, `recognition_curve.png` (share with the right cube over the reach).

@@ -89,36 +89,29 @@ experiment:
   # Nominal peak lateral deviation (m), only logged as TrialInfo.bend. The legible paths come
   # from the optimizer (section above); their real deviation is in the trajectory file's meta.
   bend: {predictable: 0.0, legible: 0.12}
-  # Bend direction per target (+1 = +y, the robot's left); also nominal, the optimizer picks the
-  # side itself (edge cubes outward, middle cubes toward the outer neighbour, as below).
-  bend_side: [1, 1, -1, -1]
-  # game: 8 rounds, every cube once per motion type, played as a game with countdown, sounds,
-  #       points and keyboard (study.launch). Order: experiment.game_order(): block A = rounds
-  #       1-4 with one motion (study.launch first:=..., else asked at startup), questionnaire on
-  #       paper, block B = rounds 5-8 with the other motion. Williams-square cube order.
-  # classic: warm-up + two motion blocks + announced block (reps_per_block, docs/experiment_plan.md).
-  design: game
-  # game: practice rounds before block A, [motion, cube]. Shown and scored like the game, then
+  # The game: 8 rounds, every cube once per motion type, with countdown, sounds, points and
+  # keyboard (study.launch). Order: experiment.game_order(): block A = rounds 1-4 with one
+  # motion (study.launch first:=..., else asked at startup), questionnaire on paper, block B =
+  # rounds 5-8 with the other motion. Williams-square cube order. Cube colours: `blocks` above.
+  # Practice rounds before block A, [motion, cube]. Shown and scored like the game, then
   # the score goes back to 0 (not on the leaderboard). Recorded apart: practice_trials.csv,
   # practice_choices.csv, practice.bag. They replay the study's reaches, so these (motion, cube)
   # pairs are seen again in the game. [] = no practice.
   training: [[predictable, B2], [legible, B3], [predictable, B4], [legible, B1], [predictable, B3]]
-  countdown: 3                 # game: 3-2-1 before every reach (1 s per number)
-  confidence_rating: false     # game: true = "How sure were you?" 1-7 after every reach, before the result
-  leaderboard: true            # game: <output_dir>/leaderboard.csv, final screen shows the rank (P## ids only)
+  countdown: 3                 # 3-2-1 before every reach (1 s per number)
+  confidence_rating: false     # true = "How sure were you?" 1-7 after every reach, before the result
+  leaderboard: true            # <output_dir>/leaderboard.csv, final screen shows the rank (P## ids only)
+  high_score: 6954             # fixed, imaginary high score: shown in the game rounds and on the final
+                               # screen (instead of the rank), never updated; null = off
+  # Shown before the scored game ("Practice done!" screen, or the welcome screen without
+  # practice); {high_score} = the number above. "" = no challenge text.
+  high_score_text: "Try to beat the high score of {high_score} points! If you beat it, you win a prize."
   inter_trial_time: 1.0        # s between rounds in --auto mode
-  points_max: 1000             # game: points of a round with the right cube picked at reach onset
-  points_exponent: 2.0         # game: points left = points_max x (1 - t/T)^exponent; 2 = 640 left after
+  points_max: 1000             # points of a round with the right cube picked at reach onset
+  points_exponent: 2.0         # points left = points_max x (1 - t/T)^exponent; 2 = 640 left after
                                # 1 s, 360 after 2 s (1 = linear: 800, 600). The bar shows the same curve.
-  reps_per_block: 4            # classic: each cube this often per main block -> 16 trials per block
-  max_same_in_row: 2
-  # Counterbalancing: block order x colour rotation, balanced list shuffled once with this seed.
-  assignment_seed: 2026
-  colors: [green, red, orange, yellow]   # rotation 0 = the colours in `blocks` above
-  # false: every participant sees the cubes in the colours above (as on the table and in RViz);
-  # true: colours rotate per participant (classic design; then re-colour the cubes every session).
-  rotate_colors: false
-  ready_time: 2.0              # s "Round n of 8 / Get ready" before the countdown (classic: before the reach)
+  assignment_seed: 2026        # seed of the block-B cube order (game_order)
+  ready_time: 2.0              # s "Round n of 8 / Get ready" before the countdown
   score_time: 3.0              # s score on the screen after the reach
   rating_timeout: 30.0         # s to answer a 1-7 rating, then it is logged empty
   record_bag: true             # rosbag of the session (plan §2.5)

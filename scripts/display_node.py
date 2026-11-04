@@ -2,19 +2,21 @@
 """Display node: fullscreen window on the participant's monitor (Tkinter), plus the keypad.
 
 Sub:  /display       (String, JSON from experiment_node)
-        {"screen": "text" | "reach" | "score" | "rating" | "countdown" | "result" | "final",
+        {"screen": "text" | "reach" | "rating" | "countdown" | "result" | "final",
          "title", "text", "cubes": [colour, ...] left to right as the participant sees them,
          "choice": index or -1, "target": index (result), "number" (countdown),
          "points" (result, final), "hud": {"round", "rounds", "total"}, "focus": bool,
          "drain": seconds (reach: the points bar starts emptying now, over that time),
          "points_max", "exponent" (reach: bar = points_max x (1 - t/T)^exponent)}
-        hud: optional "label" (default "Round"; "Practice" in the practice rounds).
+        hud: optional "label" (default "Round"; "Practice" in the practice rounds) and "best"
+        (a high score shown under the score).
         A message with "screen" replaces the screen; one without (e.g. {"choice": 2}) updates it.
 Pub:  /rating        (std_msgs/Int32)  keys 1-7 (number row or keypad) while the window has focus
       /button_press  (std_msgs/Int32)  keys a s d f -> 0-3, only with display.keyboard_buttons
                                        (dry runs without the push buttons)
 Esc leaves fullscreen. display.geometry (e.g. "+1920+0") puts the window on the participant's
-monitor. "focus": true takes the keyboard focus, so the game keys reach this window.
+monitor. "focus": true takes the keyboard focus, so the game keys reach this window, and keeps
+it while that screen is shown (taken back within FOCUS_CHECK s if the desktop moves it away).
 """
 import json
 import queue
@@ -31,6 +33,7 @@ GOOD, BAD = "#40d040", "#ff5050"
 EMPTY = {"screen": "text", "title": "", "text": "", "cubes": [], "choice": -1, "target": -1,
          "number": None, "points": None, "hud": None, "drain": None, "points_max": 100, "exponent": 1.0}
 FRAME_MS = 30   # redraw interval while the points bar drains
+FOCUS_CHECK = 0.5   # s; how often a "focus" screen checks that it still has the keyboard
 BUTTON_KEYS = "asdf"
 
 
@@ -59,12 +62,31 @@ class Display:
         self.state = dict(EMPTY, title="Please wait")
         self.pressed = None
         self.drain_start = None   # time.monotonic() when the points bar started emptying
+        self.focus_checked = 0.0
+        self.focus_lost_logged = False
         self.root.after(FRAME_MS, self.poll)
+
+    def keep_focus(self):
+        """While a "focus" screen is shown, take the keyboard back whenever it went elsewhere:
+        the desktop (GNOME on Wayland) hands it back to the experimenter's terminal a few
+        seconds after focus_force(), and the cube keys would then be typed there."""
+        now = time.monotonic()
+        if not self.state.get("focus") or now - self.focus_checked < FOCUS_CHECK:
+            return
+        self.focus_checked = now
+        try:
+            has_focus = self.root.focus_get() is not None
+        except KeyError:  # Tk cannot name the focus widget (e.g. a menu): treat as ours
+            has_focus = True
+        if not has_focus:
+            if not self.focus_lost_logged:
+                rospy.logwarn("Game window lost the keyboard focus; taking it back")
+                self.focus_lost_logged = True
+            self.root.focus_force()
 
     def on_key(self, event):
         # Some input methods (XWayland, ibus) deliver an empty char: fall back to the key name.
         key = (event.char or (event.keysym if len(event.keysym) == 1 else "")).lower()  # Caps Lock on still counts
-        rospy.loginfo("Key %r (char %r, keysym %s)", key, event.char, event.keysym)
         if key and key in "1234567":
             self.rating_pub.publish(Int32(int(key)))
             if self.state["screen"] == "rating":
@@ -83,6 +105,7 @@ class Display:
             if "screen" in msg:
                 self.state = dict(EMPTY)
                 self.pressed = None
+                self.focus_lost_logged = False
             self.state.update(msg)
             if msg.get("drain"):
                 self.drain_start = time.monotonic()
@@ -91,6 +114,7 @@ class Display:
             changed = True
         if changed or (self.state["screen"] == "reach" and self.state.get("drain")):
             self.draw()
+        self.keep_focus()
         self.root.after(FRAME_MS, self.poll)
 
     def draw(self):
@@ -104,7 +128,7 @@ class Display:
                       font=("Helvetica", big, "bold"))
         if s.get("hud"):
             self.draw_hud(w, h, s["hud"])
-        if screen in ("reach", "score", "countdown", "result") and s.get("cubes"):
+        if screen in ("reach", "countdown", "result") and s.get("cubes"):
             self.draw_cubes(w, h, s["cubes"], s.get("choice", -1),
                             s.get("target", -1) if screen == "result" else -1, dim=screen == "countdown")
         elif screen == "rating":
@@ -147,6 +171,9 @@ class Display:
                                 text="%s %d / %d" % (hud.get("label", "Round"), hud["round"], hud["rounds"]))
         self.canvas.create_text(w * 0.97, h * 0.04, anchor="ne", fill=GOLD, font=font,
                                 text="Score %d" % hud["total"])
+        if hud.get("best") is not None:
+            self.canvas.create_text(w * 0.97, h * 0.04 + font[1] * 1.6, anchor="ne", fill=DIM, font=font,
+                                    text="High score %d" % hud["best"])
 
     def draw_cubes(self, w, h, cubes, choice, target=-1, dim=False):
         n = len(cubes)

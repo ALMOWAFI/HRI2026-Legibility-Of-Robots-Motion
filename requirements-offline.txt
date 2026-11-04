@@ -3,3 +3,5 @@ numpy>=1.20
 scipy>=1.7
 PyYAML>=5.4
 matplotlib>=3.3
+pandas>=1.3              # tools/analyze.py
+statsmodels>=0.13        # tools/analyze.py mixed models (skipped without it)
