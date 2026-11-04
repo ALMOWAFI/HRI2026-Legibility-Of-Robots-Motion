@@ -14,16 +14,6 @@ def key(motion, target_id):
     return "%s_%d" % (motion, int(target_id))
 
 
-def bend_vector(p0, p1, side, amount):
-    """Horizontal vector of length `amount`, perpendicular to the reach p0 -> p1, on the
-    +y side for side = +1 and the -y side for side = -1."""
-    d = np.asarray(p1, float)[:2] - np.asarray(p0, float)[:2]
-    n = np.array([-d[1], d[0]]) / np.linalg.norm(d)
-    if np.sign(n[1]) != np.sign(side):
-        n = -n
-    return np.array([n[0], n[1], 0.0]) * amount
-
-
 def save(path, joint_names, start_joints, reaches, meta):
     """reaches: {key: {"times", "positions", "velocities", "xyz"}} (numpy arrays)."""
     arrays = {"joint_names": np.array(joint_names),

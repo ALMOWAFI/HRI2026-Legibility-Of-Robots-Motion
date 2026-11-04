@@ -1,5 +1,5 @@
-"""Experiment logic without ROS (docs/experiment_plan.md §3.4, §4): counterbalancing,
-trial schedule, per-trial choice record + scores, output files.
+"""Experiment logic without ROS: the game's trial schedule (practice, block A, block B),
+per-trial choice record + points, leaderboard, output files.
 
 Times are seconds (floats); experiment_node.py feeds in rospy times.
 """
@@ -13,88 +13,19 @@ MOTIONS = ("predictable", "legible")
 
 TRIAL_FIELDS = ["participant_id", "trial_id", "phase", "block", "index_in_phase", "motion",
                 "target_id", "target_name", "target_color", "status",
-                "t_trial_start", "t_start", "t_end", "t_done", "f", "score",
+                "t_trial_start", "t_start", "t_end", "t_done", "f",
                 "t_first_correct", "t_commit", "n_switches", "final_choice", "final_correct",
-                "confidence", "naturalness", "points"]
+                "confidence", "points"]
 CHOICE_FIELDS = ["participant_id", "trial_id", "stamp", "t_rel", "choice_id"]
 
 
-# --- counterbalancing (§4.3) ---------------------------------------------------------
+# --- schedule ------------------------------------------------------------------------
 
 def participant_number(participant_id):
     """'P07' -> 7. Ids without digits (e.g. a dry run) -> 0."""
     digits = re.findall(r"\d+", str(participant_id))
     return int(digits[-1]) if digits else 0
 
-
-def assignment_list(seed, n_rotations=4):
-    """8 cells (block order x colour rotation), each twice, shuffled once with a fixed seed.
-    Entry k-1 is participant k's cell; participants 17+ continue cyclically."""
-    cells = [(order, rot) for order in (MOTIONS, MOTIONS[::-1]) for rot in range(n_rotations)]
-    cells = cells * 2
-    random.Random(seed).shuffle(cells)
-    return cells
-
-
-def assignment(participant_id, seed):
-    """(block order as a (motion, motion) tuple, colour rotation 0..3) for a participant."""
-    cells = assignment_list(seed)
-    return cells[(participant_number(participant_id) - 1) % len(cells)]
-
-
-def rotated_colors(colors, rotation):
-    """Cube colour at each position (block id) for a colour rotation."""
-    return [colors[(i + rotation) % len(colors)] for i in range(len(colors))]
-
-
-# --- schedule (§4.1, §4.2) -----------------------------------------------------------
-
-def max_run(targets):
-    """Longest run of the same target in a row."""
-    best = run = 1 if targets else 0
-    for a, b in zip(targets, targets[1:]):
-        run = run + 1 if a == b else 1
-        best = max(best, run)
-    return best
-
-
-def shuffled(items, rng, limit, max_tries=10000):
-    """Shuffle (motion, target) pairs so no target appears more than `limit` times in a row."""
-    items = list(items)
-    for _ in range(max_tries):
-        rng.shuffle(items)
-        if max_run([t for _, t in items]) <= limit:
-            return items
-    raise RuntimeError("No order with at most %d same cubes in a row" % limit)
-
-
-def make_schedule(block_order, targets, reps, seed, limit=2):
-    """List of trials: {trial_id, phase, block, index_in_phase, motion, target_id}.
-
-    warmup     2 predictable + 2 legible, four different cubes
-    main       block A (block_order[0]) and block B, each cube `reps` times per block
-    announced  every cube x every motion once, target announced before the reach
-    """
-    rng = random.Random(seed)
-    cubes = list(targets)
-    rng.shuffle(cubes)
-    motions = [MOTIONS[0], MOTIONS[0], MOTIONS[1], MOTIONS[1]]
-    rng.shuffle(motions)
-    phases = [("warmup", "W", list(zip(motions, cubes[:4])))]
-    for name, motion in zip("AB", block_order):
-        phases.append(("main", name, shuffled([(motion, t) for t in targets for _ in range(reps)],
-                                              rng, limit)))
-    phases.append(("announced", "C", shuffled([(m, t) for m in MOTIONS for t in targets], rng, limit)))
-
-    trials = []
-    for phase, block, items in phases:
-        for i, (motion, target) in enumerate(items):
-            trials.append({"trial_id": len(trials), "phase": phase, "block": block,
-                           "index_in_phase": i, "motion": motion, "target_id": target})
-    return trials
-
-
-# --- game: 8 trials, every cube x every motion once --------------------------------
 
 # Balanced Latin square (Williams design) for 4 cubes: every cube once in every position
 # and every ordered pair of cubes once as neighbours, over 4 rows.
@@ -131,10 +62,11 @@ def game_order(participant, targets, seed, first):
 
 
 def make_game_schedule(participant, targets, seed, first, training=()):
-    """Trials in the format of make_schedule(): first the `training` (motion, target) pairs
-    (phase 'training', block 'T', practice, logged separately), then phase 'game', block 'A'
-    (rounds 1-4, motion `first`) and 'B' (rounds 5-8, the other motion). trial_id counts
-    within each phase, so the game trials are 0-7 with or without practice."""
+    """Trials {trial_id, phase, block, index_in_phase, motion, target_id}: first the `training`
+    (motion, target) pairs (phase 'training', block 'T', practice, logged separately), then
+    phase 'game', block 'A' (rounds 1-4, motion `first`) and 'B' (rounds 5-8, the other
+    motion). trial_id counts within each phase, so the game trials are 0-7 with or without
+    practice."""
     practice = [{"trial_id": i, "phase": "training", "block": "T", "index_in_phase": i,
                  "motion": motion, "target_id": target} for i, (motion, target) in enumerate(training)]
     return practice + [{"trial_id": i, "phase": "game", "block": "AB"[i // 4], "index_in_phase": i,
@@ -146,11 +78,6 @@ def points_left(u, points_max=100, exponent=1.0):
     """Points still possible at reach fraction u (0..1): what a right pick made now and kept
     to the end earns. exponent > 1 drains faster, most of all at the start."""
     return points_max * (1.0 - min(max(u, 0.0), 1.0)) ** exponent
-
-
-def points(f):
-    """Linear game points: 100 x the fraction of the reach the selected cube was right."""
-    return int(round(100 * f))
 
 
 class Leaderboard:
@@ -175,7 +102,7 @@ class Leaderboard:
         return rank, len(others) + 1, max(others) if others else None
 
 
-# --- one trial (§3.4) ----------------------------------------------------------------
+# --- one trial -----------------------------------------------------------------------
 
 class TrialRecord:
     """Choices of one trial and the reach timing; computes the trial measures."""
@@ -189,7 +116,6 @@ class TrialRecord:
         self.status = "pending"
         self.choices = []       # [(stamp, choice_id)], changes only
         self.confidence = None
-        self.naturalness = None
 
     @property
     def current_choice(self):
@@ -211,7 +137,7 @@ class TrialRecord:
         return c
 
     def measures(self, duration):
-        """f, score, t_first_correct, t_commit, n_switches, final_choice, final_correct.
+        """f, t_first_correct, t_commit, n_switches, final_choice, final_correct, points.
         Times are fractions of the reach duration T, measured from reach onset."""
         if self.t_start is None:
             return {}
@@ -233,8 +159,7 @@ class TrialRecord:
         # Commit = start of the final correct stretch (1.0 if the reach did not end on it).
         commit = steps[-1][0] if final == target else t1
         rel = lambda t: None if t is None else min(max((t - t0) / duration, 0.0), 1.0)
-        return {"f": f, "score": int(round(10 * f)), "t_first_correct": rel(first),
-                "t_commit": rel(commit),
+        return {"f": f, "t_first_correct": rel(first), "t_commit": rel(commit),
                 "n_switches": max(0, sum(1 for t, _ in self.choices if t <= t1) - 1),
                 "final_choice": final, "final_correct": int(final == target),
                 "points": int(round(earned))}
@@ -247,9 +172,8 @@ class TrialRecord:
                    target_color=colors[target], status=self.status,
                    t_trial_start=self.t_trial_start, t_start=self.t_start,
                    t_end=None if self.t_start is None else self.t_start + duration,
-                   t_done=self.t_done, confidence=self.confidence, naturalness=self.naturalness)
-        if self.trial["phase"] != "announced":
-            row.update(self.measures(duration))
+                   t_done=self.t_done, confidence=self.confidence)
+        row.update(self.measures(duration))
         return row
 
     def choice_rows(self, participant_id):

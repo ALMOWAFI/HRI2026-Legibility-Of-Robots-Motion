@@ -18,8 +18,7 @@ config/experiment.yaml
 
 Both reach topics use `moveit_msgs/CartesianTrajectory`. The optimizer publishes
 Cartesian proposals and never executes the robot. This flow uses Cartesian
-planning; it does not use RRT-Connect. The earlier separate RRT/FK integration is
-historical context in [docs/connected_pipeline.md](docs/connected_pipeline.md).
+planning; it does not use RRT-Connect.
 
 ## Preview in the lab
 
@@ -71,9 +70,10 @@ its equations, acceptance rules, model limitations and paper comparison.
 
 ## Study and participant interface
 
-`launch/hri.launch` starts the motion replay node and participant display.
-`scripts/experiment_node.py` handles trials, buttons, ratings and recording.
-These use the saved trajectory cache, not the live optimizer topic.
+`launch/study.launch` starts a whole session: the motion replay node, participant
+display, sound and `scripts/experiment_node.py` (the game: practice, two blocks with a
+questionnaire in between, keys, points, recording). These use the saved trajectory
+cache, not the live optimizer topic. How to run a session: [docs/study_session.md](docs/study_session.md).
 
 The existing `config/trajectories.npz` is retained as the previous study cache.
 Offline comparisons do not replace it. With MoveIt available, generate and
@@ -88,10 +88,9 @@ the reviewed cache via `trajectories` in the session configuration, restart the
 motion node, and use the existing study commands:
 
 ```bash
-roslaunch hri_legible_motion hri.launch
-rosrun hri_legible_motion experiment_node.py P07
+roslaunch hri_legible_motion study.launch participant:=P07 first:=legible
 ```
 
-Buttons publish `/button_press`; the experiment publishes `/trial_start`,
-`/display` and `/choice`, and consumes `/motion_status` and `/rating`. Study details
-are in [docs/experiment_plan.md](docs/experiment_plan.md).
+The game keys publish `/button_press`; the experiment publishes `/trial_start`,
+`/display`, `/sound` and `/choice`, and consumes `/motion_status` and `/rating`. The
+original study plan is [docs/experiment_plan.md](docs/experiment_plan.md).

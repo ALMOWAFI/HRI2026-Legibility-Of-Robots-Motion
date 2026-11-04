@@ -20,22 +20,6 @@ def reach(n=5):
             "xyz": np.random.rand(n, 3)}
 
 
-class TestBend(unittest.TestCase):
-    P0 = np.array([0.434, -0.134, 0.245])
-
-    def test_perpendicular_and_sided(self):
-        for side in (1, -1):
-            p1 = np.array([0.875, -0.044, 0.053])
-            v = T.bend_vector(self.P0, p1, side, 0.2)
-            self.assertAlmostEqual(np.linalg.norm(v), 0.2)
-            self.assertAlmostEqual(float(np.dot(v[:2], (p1 - self.P0)[:2])), 0.0)
-            self.assertEqual(np.sign(v[1]), side)
-            self.assertEqual(v[2], 0.0)
-
-    def test_zero_amount(self):
-        self.assertTrue(np.allclose(T.bend_vector(self.P0, [0.8, 0.1, 0.05], 1, 0.0), 0))
-
-
 class TestFile(unittest.TestCase):
     def test_round_trip(self):
         reaches = {T.key("predictable", i): reach() for i in range(4)}

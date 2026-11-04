@@ -15,66 +15,23 @@ BLOCKS = [{"name": "B%d" % (i + 1)} for i in TARGETS]
 COLORS = ["orange", "red", "yellow", "green"]
 
 
-class TestCounterbalancing(unittest.TestCase):
-    def test_first_16_fill_every_cell_twice(self):
-        cells = [E.assignment("P%02d" % k, seed=2026) for k in range(1, 17)]
-        self.assertEqual(set(collections.Counter(cells).values()), {2})
-        self.assertEqual(len(set(cells)), 8)
-        orders = collections.Counter(order for order, _ in cells)
-        self.assertEqual(orders[("predictable", "legible")], 8)
+def max_run(targets):
+    """Longest run of the same target in a row."""
+    best = run = 1 if targets else 0
+    for a, b in zip(targets, targets[1:]):
+        run = run + 1 if a == b else 1
+        best = max(best, run)
+    return best
 
-    def test_continues_cyclically(self):
-        self.assertEqual(E.assignment("P17", 2026), E.assignment("P01", 2026))
 
+class TestParticipant(unittest.TestCase):
     def test_participant_number(self):
         self.assertEqual(E.participant_number("P07"), 7)
         self.assertEqual(E.participant_number("pilot_12"), 12)
         self.assertEqual(E.participant_number("dry"), 0)
 
-    def test_rotation(self):
-        self.assertEqual(E.rotated_colors(COLORS, 0), COLORS)
-        self.assertEqual(E.rotated_colors(COLORS, 1), ["red", "yellow", "green", "orange"])
 
-
-class TestSchedule(unittest.TestCase):
-    def setUp(self):
-        self.trials = E.make_schedule(("legible", "predictable"), TARGETS, 4, seed=3)
-
-    def phase(self, block):
-        return [t for t in self.trials if t["block"] == block]
-
-    def test_structure(self):
-        self.assertEqual(len(self.trials), 4 + 16 + 16 + 8)
-        self.assertEqual([t["trial_id"] for t in self.trials], list(range(44)))
-        self.assertEqual({t["motion"] for t in self.phase("A")}, {"legible"})
-        self.assertEqual({t["motion"] for t in self.phase("B")}, {"predictable"})
-
-    def test_warmup(self):
-        w = self.phase("W")
-        self.assertEqual(sorted(t["target_id"] for t in w), TARGETS)
-        self.assertEqual(collections.Counter(t["motion"] for t in w),
-                         {"predictable": 2, "legible": 2})
-
-    def test_main_blocks_balanced(self):
-        for b in "AB":
-            counts = collections.Counter(t["target_id"] for t in self.phase(b))
-            self.assertEqual(counts, {t: 4 for t in TARGETS})
-
-    def test_announced_each_pair_once(self):
-        pairs = {(t["motion"], t["target_id"]) for t in self.phase("C")}
-        self.assertEqual(len(pairs), 8)
-
-    def test_no_cube_more_than_twice_in_a_row(self):
-        for seed in range(30):
-            trials = E.make_schedule(("predictable", "legible"), TARGETS, 4, seed)
-            for b in "ABC":
-                self.assertLessEqual(E.max_run([t["target_id"] for t in trials if t["block"] == b]), 2)
-
-    def test_same_seed_same_schedule(self):
-        self.assertEqual(self.trials, E.make_schedule(("legible", "predictable"), TARGETS, 4, seed=3))
-
-
-def trial(target=2, phase="main"):
+def trial(target=2, phase="game"):
     return {"trial_id": 5, "phase": phase, "block": "A", "index_in_phase": 0,
             "motion": "legible", "target_id": target}
 
@@ -91,18 +48,17 @@ class TestMeasures(unittest.TestCase):
 
     def test_no_choice(self):
         m = self.record([]).measures(self.T)
-        self.assertEqual((m["f"], m["score"], m["final_correct"], m["t_commit"]), (0.0, 0, 0, 1.0))
+        self.assertEqual((m["f"], m["final_correct"], m["t_commit"], m["points"]), (0.0, 0, 1.0, 0))
         self.assertIsNone(m["t_first_correct"])
 
     def test_correct_from_the_start(self):
         m = self.record([(9.5, 2)]).measures(self.T)  # pressed before onset
         self.assertAlmostEqual(m["f"], 1.0)
-        self.assertEqual((m["score"], m["t_first_correct"], m["t_commit"]), (10, 0.0, 0.0))
+        self.assertEqual((m["t_first_correct"], m["t_commit"]), (0.0, 0.0))
 
     def test_switch_to_correct_halfway(self):
         m = self.record([(10.4, 1), (12.0, 2)]).measures(self.T)
         self.assertAlmostEqual(m["f"], 0.5)
-        self.assertEqual(m["score"], 5)
         self.assertAlmostEqual(m["t_first_correct"], 0.5)
         self.assertAlmostEqual(m["t_commit"], 0.5)
         self.assertEqual((m["n_switches"], m["final_correct"]), (1, 1))
@@ -145,17 +101,10 @@ class TestLog(unittest.TestCase):
             with open(log.trials_path) as f:
                 rows = list(csv.DictReader(f))
             self.assertEqual(len(rows), 2)
-            self.assertEqual((rows[0]["target_color"], rows[0]["score"], rows[0]["confidence"]),
-                             ("yellow", "9", "6"))
+            self.assertEqual((rows[0]["target_color"], rows[0]["points"], rows[0]["confidence"]),
+                             ("yellow", "88", "6"))
             with open(log.choices_path) as f:
                 self.assertEqual(len(list(csv.DictReader(f))), 2)
-
-    def test_announced_has_no_score(self):
-        r = E.TrialRecord(trial(phase="announced"), 9.0)
-        r.t_start, r.naturalness = 10.0, 5
-        row = r.row("P01", 4.0, BLOCKS, COLORS)
-        self.assertNotIn("score", row)
-        self.assertEqual(row["naturalness"], 5)
 
 
 class TestGameSchedule(unittest.TestCase):
@@ -186,7 +135,7 @@ class TestGameSchedule(unittest.TestCase):
     def test_no_cube_twice_in_a_row(self):
         for p in self.PARTICIPANTS:
             for first in E.MOTIONS:
-                self.assertEqual(E.max_run([t for _, t in E.game_order(p, TARGETS, 2026, first)]), 1)
+                self.assertEqual(max_run([t for _, t in E.game_order(p, TARGETS, 2026, first)]), 1)
 
     def test_counterbalanced_over_8_participants(self):
         orders = [self.order(p) for p in self.PARTICIPANTS[:8]]
@@ -225,9 +174,6 @@ class TestGameSchedule(unittest.TestCase):
     def test_bad_first_motion(self):
         with self.assertRaises(ValueError):
             E.game_order("P05", TARGETS, 2026, "fast")
-
-    def test_points(self):
-        self.assertEqual((E.points(0.0), E.points(0.724), E.points(1.0)), (0, 72, 100))
 
     def test_points_left(self):
         self.assertAlmostEqual(E.points_left(0.2, 1000, 2.0), 640)

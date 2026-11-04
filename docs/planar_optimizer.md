@@ -3,8 +3,7 @@
 The active lab path is `test_motion.py` -> `/hri/predictable_reach` ->
 `legibility_optimizer_node.py` -> `/hri/legible_reach` -> `Robot.plan()`.
 The baseline is a Cartesian straight reach. MoveIt solves Cartesian IK after
-optimization. This is not the earlier RRT/FK joint-trajectory pipeline.
-The optimizer never connects to the trajectory controller.
+optimization. The optimizer never connects to the trajectory controller.
 
 ## Objective and constraints
 
@@ -105,7 +104,7 @@ The existing robot helper checks sampled joint speeds and jumps; acceleration,
 controller interpolation and collision coverage between samples still need lab
 verification. No hardware-readiness claim follows from offline tests.
 
-`hri.launch` runs the separate cached study/replay path. It does not subscribe to
+`study.launch` runs the separate cached study/replay path. It does not subscribe to
 the live optimizer. The committed cache was deliberately not overwritten by
 offline comparisons. To use new optimized reaches in the study, generate a NEW
 cache with MoveIt, inspect it, then select that file and restart the replay node:
