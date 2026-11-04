@@ -203,6 +203,25 @@ class TestGameSchedule(unittest.TestCase):
         self.assertEqual([t for _, t in E.game_order("P05", TARGETS, 2026, "legible")],
                          [t for _, t in E.game_order("P05", TARGETS, 2026, "predictable")])
 
+    def test_training_first(self):
+        training = [("predictable", 1), ("legible", 2), ("predictable", 3), ("legible", 0), ("predictable", 2)]
+        trials = E.make_game_schedule("P03", TARGETS, 2026, "legible", training)
+        self.assertEqual(len(trials), 13)
+        self.assertEqual([t["block"] for t in trials], list("TTTTTAAAABBBB"))
+        self.assertEqual([t["phase"] for t in trials], ["training"] * 5 + ["game"] * 8)
+        self.assertEqual([(t["motion"], t["target_id"]) for t in trials[:5]], training)
+        self.assertEqual([t["trial_id"] for t in trials], list(range(5)) + list(range(8)))
+        # The game part is the same with or without practice.
+        self.assertEqual(trials[5:], E.make_game_schedule("P03", TARGETS, 2026, "legible"))
+
+    def test_practice_log_apart(self):
+        with tempfile.TemporaryDirectory() as d:
+            log, practice = E.SessionLog(d), E.SessionLog(d, "practice_")
+            self.assertEqual(os.path.basename(practice.trials_path), "practice_trials.csv")
+            self.assertEqual(os.path.basename(practice.choices_path), "practice_choices.csv")
+            self.assertEqual(os.path.dirname(practice.trials_path), os.path.dirname(log.trials_path))
+            self.assertNotEqual(practice.trials_path, log.trials_path)
+
     def test_bad_first_motion(self):
         with self.assertRaises(ValueError):
             E.game_order("P05", TARGETS, 2026, "fast")

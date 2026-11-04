@@ -130,12 +130,16 @@ def game_order(participant, targets, seed, first):
     return [(first, t) for t in cubes] + [(second, t) for t in rng.choice(orders)]
 
 
-def make_game_schedule(participant, targets, seed, first):
-    """Trials in the format of make_schedule(): phase 'game', block 'A' (trials 1-4, motion
-    `first`) and 'B' (trials 5-8, the other motion)."""
-    return [{"trial_id": i, "phase": "game", "block": "AB"[i // 4], "index_in_phase": i,
-             "motion": motion, "target_id": target}
-            for i, (motion, target) in enumerate(game_order(participant, targets, seed, first))]
+def make_game_schedule(participant, targets, seed, first, training=()):
+    """Trials in the format of make_schedule(): first the `training` (motion, target) pairs
+    (phase 'training', block 'T', practice, logged separately), then phase 'game', block 'A'
+    (rounds 1-4, motion `first`) and 'B' (rounds 5-8, the other motion). trial_id counts
+    within each phase, so the game trials are 0-7 with or without practice."""
+    practice = [{"trial_id": i, "phase": "training", "block": "T", "index_in_phase": i,
+                 "motion": motion, "target_id": target} for i, (motion, target) in enumerate(training)]
+    return practice + [{"trial_id": i, "phase": "game", "block": "AB"[i // 4], "index_in_phase": i,
+                        "motion": motion, "target_id": target}
+                       for i, (motion, target) in enumerate(game_order(participant, targets, seed, first))]
 
 
 def points_left(u, points_max=100, exponent=1.0):
@@ -255,14 +259,14 @@ class TrialRecord:
 
 
 class SessionLog:
-    """<dir>/trials.csv and <dir>/choices.csv, appended and flushed after every trial,
-    so a crash loses at most the running trial."""
+    """<dir>/<prefix>trials.csv and <dir>/<prefix>choices.csv, appended and flushed after every
+    trial, so a crash loses at most the running trial. prefix 'practice_': the practice rounds."""
 
-    def __init__(self, directory):
+    def __init__(self, directory, prefix=""):
         os.makedirs(directory, exist_ok=True)
         self.dir = directory
-        self.trials_path = os.path.join(directory, "trials.csv")
-        self.choices_path = os.path.join(directory, "choices.csv")
+        self.trials_path = os.path.join(directory, prefix + "trials.csv")
+        self.choices_path = os.path.join(directory, prefix + "choices.csv")
 
     @staticmethod
     def _append(path, fields, rows):

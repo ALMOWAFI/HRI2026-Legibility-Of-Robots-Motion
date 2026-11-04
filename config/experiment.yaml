@@ -98,6 +98,11 @@ experiment:
   #       paper, block B = rounds 5-8 with the other motion. Williams-square cube order.
   # classic: warm-up + two motion blocks + announced block (reps_per_block, docs/experiment_plan.md).
   design: game
+  # game: practice rounds before block A, [motion, cube]. Shown and scored like the game, then
+  # the score goes back to 0 (not on the leaderboard). Recorded apart: practice_trials.csv,
+  # practice_choices.csv, practice.bag. They replay the study's reaches, so these (motion, cube)
+  # pairs are seen again in the game. [] = no practice.
+  training: [[predictable, B2], [legible, B3], [predictable, B4], [legible, B1], [predictable, B3]]
   countdown: 3                 # game: 3-2-1 before every reach (1 s per number)
   confidence_rating: false     # game: true = "How sure were you?" 1-7 after every reach, before the result
   leaderboard: true            # game: <output_dir>/leaderboard.csv, final screen shows the rank (P## ids only)

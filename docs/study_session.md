@@ -21,14 +21,24 @@ use a new id every time, ids that are not `P##` stay off the leaderboard):
 roslaunch hri_legible_motion study.launch participant:=dry01 dry_run:=true
 ```
 
-Resume after a crash: `start_trial:=N` (0-based index of the round to repeat; the score so far
-is read back from `trials.csv`, the first motion from `session.yaml`). Resuming at round 5
-or later skips the questionnaire stop.
+Resume after a crash: `start_trial:=N` (0-based index of the round to repeat, counting the
+practice rounds: with 5 practice rounds, game round 1 is N = 5 and round 5 is N = 9; the
+experimenter window prints `[N+1/13]` before every round). The score so far is read back from
+`trials.csv`, the first motion from `session.yaml`. Resuming inside a block skips the screen
+that starts it (practice done / questionnaire).
 
 ## Design
 
 - 8 rounds per participant: every cube (B1-B4) once with the predictable and once with the
   legible reach. Participants are not told that there are two kinds of motion.
+- Practice first: 5 rounds from `experiment.training` (default P B2, L B3, P B4, L B1, P B3).
+  They look exactly like game rounds (points bar, +points, score in the corner, labelled
+  "Practice n / 5"). Then "Practice done!" shows the practice score, the score goes back to 0
+  (practice never reaches the leaderboard) and the player starts the game with a cube key.
+- Practice data is recorded apart: `practice_trials.csv`, `practice_choices.csv` and
+  `practice.bag`; the game is in `trials.csv`, `choices.csv` and `session.bag` (game
+  trial_id 0-7 as without practice). The practice replays the study's reaches, so those
+  (motion, cube) pairs are seen again in the game.
 - Block A, rounds 1-4: every cube once with one motion. Block B, rounds 5-8: every cube once
   with the other motion. The experimenter chooses block A's motion (`first:=predictable` or
   `first:=legible`; without it the experimenter window asks, Enter = the balanced default:
@@ -112,7 +122,9 @@ plays (espeak-ng voice or a synthesized effect).
    the next round. Only the e-stop stops the robot during a reach.
 8. After a failed round the session stops and asks for `go` again (robot home), then
    whether to repeat the round.
-9. After round 4: the screen says "Break". Hand out the first questionnaire; when it is done,
+9. 5 practice rounds run first (scored on screen, score reset after); then "Practice done!"
+   waits for a cube key.
+   After round 4: the screen says "Break". Hand out the first questionnaire; when it is done,
    Enter in the experimenter window, then the player presses a cube key and block B starts.
 10. At the end: Enter in the experimenter window closes everything. Data for both blocks in
    `~/hri_data/P##/` (`session.yaml`, `trials.csv` with `block` A/B and `points`,
