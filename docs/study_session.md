@@ -2,14 +2,16 @@
 
 One command starts everything: motion node, participant display, sound and the experiment
 node. The experiment node opens in its own terminal window, where the experimenter types `go`
-once; after that the 8 rounds run by themselves.
+once; after that the rounds run by themselves, with one stop after round 4 for the paper
+questionnaire.
 
 ```bash
 # robot first, separate terminals (as before)
+roscore                                    # own terminal, keep it open
 ~/scripts/launch_hardware.sh
 ~/scripts/resend_robot_program.sh          # pendant in Remote Control
-# the session
-roslaunch hri_legible_motion study.launch participant:=P07
+# the session; first:= is the motion of rounds 1-4 (leave it out to be asked)
+roslaunch hri_legible_motion study.launch participant:=P07 first:=predictable
 ```
 
 Dry run without the robot (fake motion node, nothing moves, no MoveIt or driver needed;
@@ -20,47 +22,54 @@ roslaunch hri_legible_motion study.launch participant:=dry01 dry_run:=true
 ```
 
 Resume after a crash: `start_trial:=N` (0-based index of the round to repeat; the score so far
-is read back from `trials.csv`).
+is read back from `trials.csv`, the first motion from `session.yaml`). Resuming at round 5
+or later skips the questionnaire stop.
 
 ## Design
 
 - 8 rounds per participant: every cube (B1-B4) once with the predictable and once with the
   legible reach. Participants are not told that there are two kinds of motion.
-- Rounds 1-4: every cube once, 2 predictable + 2 legible. Rounds 5-8: every cube once
-  with the other motion. Practice and fatigue therefore hit both motions equally.
-- The same cube never comes twice in a row; the same motion at most twice in a row
-  (`experiment.max_motion_in_row`).
-- Counterbalancing over groups of 8 participants: the cube order of rounds 1-4 comes from a
-  balanced Latin square (every cube in every position, every cube pair as neighbours, once per
-  4 rows), and odd participant numbers start with the predictable motion, even ones with the
-  legible motion. The rest comes from a fixed seed (`experiment.assignment_seed`), so the order
-  depends only on the participant id and is written to `session.yaml`.
+- Block A, rounds 1-4: every cube once with one motion. Block B, rounds 5-8: every cube once
+  with the other motion. The experimenter chooses block A's motion (`first:=predictable` or
+  `first:=legible`; without it the experimenter window asks, Enter = the balanced default:
+  odd participant numbers predictable, even ones legible).
+- Between the blocks the participant fills in the questionnaire on paper. The game screen
+  says "Break", the experimenter window waits for Enter, then the player presses a cube key
+  to start block B. Robot at the start pose throughout; the bag keeps recording.
+- The same cube never comes twice in a row, and block B never repeats block A's cube order.
+- Counterbalancing over groups of 8 participants (with the default first motion): the cube
+  order of block A comes from a balanced Latin square (every cube in every position, every
+  cube pair as neighbours, once per 4 rows), one row per pair of participants, so each motion
+  sees every cube in every block-A position once. Block B's order comes from a fixed seed
+  (`experiment.assignment_seed`). The order depends only on the participant id and the first
+  motion, and is written to `session.yaml` (with `first_motion`).
 - Code: `experiment.game_order()`, tests in `test/test_experiment.py`.
 
-Order for P01-P20 (P = predictable, L = legible):
+Order for P01-P20 with the default first motion (P = predictable, L = legible). Choosing the
+other first motion swaps the motions only; the cube order stays.
 
-| | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
-|---|---|---|---|---|---|---|---|---|
-| P01 | P B1 | L B2 | P B4 | L B3 | L B4 | P B2 | L B1 | P B3 |
-| P02 | L B1 | L B2 | P B4 | P B3 | L B4 | P B2 | L B3 | P B1 |
-| P03 | P B2 | L B3 | L B1 | P B4 | L B2 | P B1 | L B4 | P B3 |
-| P04 | L B2 | P B3 | L B1 | P B4 | P B2 | L B4 | L B3 | P B1 |
-| P05 | P B3 | L B4 | P B2 | L B1 | P B4 | L B3 | P B1 | L B2 |
-| P06 | L B3 | L B4 | P B2 | P B1 | L B2 | P B3 | P B4 | L B1 |
-| P07 | P B4 | L B1 | P B3 | L B2 | P B1 | L B4 | L B3 | P B2 |
-| P08 | L B4 | L B1 | P B3 | P B2 | L B3 | L B2 | P B4 | P B1 |
-| P09 | P B1 | P B2 | L B4 | L B3 | P B4 | L B1 | P B3 | L B2 |
-| P10 | L B1 | P B2 | P B4 | L B3 | L B4 | P B3 | L B2 | P B1 |
-| P11 | P B2 | L B3 | P B1 | L B4 | L B1 | P B3 | L B2 | P B4 |
-| P12 | L B2 | P B3 | L B1 | P B4 | P B1 | L B4 | L B3 | P B2 |
-| P13 | P B3 | L B4 | P B2 | L B1 | P B4 | P B1 | L B3 | L B2 |
-| P14 | L B3 | P B4 | L B2 | P B1 | L B4 | P B2 | P B3 | L B1 |
-| P15 | P B4 | L B1 | L B3 | P B2 | L B4 | P B1 | P B3 | L B2 |
-| P16 | L B4 | P B1 | P B3 | L B2 | L B1 | P B2 | L B3 | P B4 |
-| P17 | P B1 | L B2 | L B4 | P B3 | P B4 | L B3 | L B1 | P B2 |
-| P18 | L B1 | P B2 | L B4 | P B3 | L B2 | L B3 | P B4 | P B1 |
-| P19 | P B2 | L B3 | P B1 | L B4 | L B2 | P B3 | P B4 | L B1 |
-| P20 | L B2 | P B3 | P B1 | L B4 | P B2 | P B4 | L B3 | L B1 |
+| | first | A1 | A2 | A3 | A4 | B1 | B2 | B3 | B4 |
+|---|---|---|---|---|---|---|---|---|---|
+| P01 | P | B1 | B2 | B4 | B3 | B4 | B1 | B3 | B2 |
+| P02 | L | B1 | B2 | B4 | B3 | B1 | B4 | B2 | B3 |
+| P03 | P | B2 | B3 | B1 | B4 | B2 | B1 | B3 | B4 |
+| P04 | L | B2 | B3 | B1 | B4 | B2 | B4 | B1 | B3 |
+| P05 | P | B3 | B4 | B2 | B1 | B4 | B1 | B3 | B2 |
+| P06 | L | B3 | B4 | B2 | B1 | B3 | B4 | B1 | B2 |
+| P07 | P | B4 | B1 | B3 | B2 | B1 | B2 | B4 | B3 |
+| P08 | L | B4 | B1 | B3 | B2 | B4 | B3 | B2 | B1 |
+| P09 | P | B1 | B2 | B4 | B3 | B4 | B2 | B3 | B1 |
+| P10 | L | B1 | B2 | B4 | B3 | B4 | B3 | B2 | B1 |
+| P11 | P | B2 | B3 | B1 | B4 | B1 | B2 | B4 | B3 |
+| P12 | L | B2 | B3 | B1 | B4 | B3 | B4 | B2 | B1 |
+| P13 | P | B3 | B4 | B2 | B1 | B2 | B3 | B4 | B1 |
+| P14 | L | B3 | B4 | B2 | B1 | B4 | B3 | B1 | B2 |
+| P15 | P | B4 | B1 | B3 | B2 | B4 | B1 | B2 | B3 |
+| P16 | L | B4 | B1 | B3 | B2 | B3 | B1 | B2 | B4 |
+| P17 | P | B1 | B2 | B4 | B3 | B2 | B1 | B3 | B4 |
+| P18 | L | B1 | B2 | B4 | B3 | B2 | B4 | B1 | B3 |
+| P19 | P | B2 | B3 | B1 | B4 | B3 | B1 | B2 | B4 |
+| P20 | L | B2 | B3 | B1 | B4 | B1 | B2 | B4 | B3 |
 
 ## One round
 
@@ -94,7 +103,7 @@ plays (espeak-ng voice or a synthesized effect).
    B4 yellow (A), B3 orange (S), B2 red (D), B1 green (F); the experiment node prints this
    order at startup.
 3. Display on the participant's monitor (`display.geometry`), sound audible, volume set.
-4. `roslaunch hri_legible_motion study.launch participant:=P##`.
+4. `roslaunch hri_legible_motion study.launch participant:=P## first:=predictable|legible`.
 5. In the experimenter window: Enter (setup checked), then `go` (robot to the start pose,
    then all rounds run by themselves).
 6. The welcome screen waits until the player presses a cube key; this also tests the keys.
@@ -103,5 +112,8 @@ plays (espeak-ng voice or a synthesized effect).
    the next round. Only the e-stop stops the robot during a reach.
 8. After a failed round the session stops and asks for `go` again (robot home), then
    whether to repeat the round.
-9. At the end: Enter in the experimenter window closes everything. Data: `~/hri_data/P##/`
-   (`session.yaml`, `trials.csv` with `points`, `choices.csv`, `session.bag`). Questionnaire.
+9. After round 4: the screen says "Break". Hand out the first questionnaire; when it is done,
+   Enter in the experimenter window, then the player presses a cube key and block B starts.
+10. At the end: Enter in the experimenter window closes everything. Data for both blocks in
+   `~/hri_data/P##/` (`session.yaml`, `trials.csv` with `block` A/B and `points`,
+   `choices.csv`, `session.bag`). Second questionnaire.

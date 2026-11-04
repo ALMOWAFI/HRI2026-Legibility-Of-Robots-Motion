@@ -15,6 +15,9 @@ home, Enter before each trial. --start-trial resumes a session after a crash (ap
 
 experiment.design: game = 8 trials, every cube once per motion type (experiment.game_order),
 played as a game: countdown, sounds (/sound, sound_node.py), points, keyboard input.
+Block A (trials 1-4) is one motion type, block B (trials 5-8) the other; --first chooses
+block A's motion (else asked at startup). Between the blocks the session waits for the paper
+questionnaire: Enter in this terminal, then a cube key from the player. Same files throughout.
 --auto (study.launch): the experimenter types 'go' once and the trials run by themselves;
 p + Enter pauses after the running trial, q + Enter stops after it. After a failure the
 session waits for 'go' again. Only the e-stop stops the robot during a reach.
@@ -59,7 +62,7 @@ class Aborted(Exception):
 
 
 class ExperimentNode:
-    def __init__(self, participant, start_trial, config=None, pipeline=False, auto=False):
+    def __init__(self, participant, start_trial, config=None, pipeline=False, auto=False, first=None):
         self.pkg = rospkg.RosPack().get_path("hri_legible_motion")
         self.config_path = os.path.abspath(config or os.path.join(self.pkg, "config", "experiment.yaml"))
         with open(self.config_path) as f:
@@ -82,11 +85,16 @@ class ExperimentNode:
         self.colors = E.rotated_colors(e["colors"], self.rotation)
         seed = E.participant_number(participant)
         self.game = e.get("design", "classic") == "game"
+        self.out_dir = os.path.join(os.path.expanduser(e["output_dir"]), participant)
+        self.first_motion = None
         if self.game:
             seed = e["assignment_seed"]
+            self.first_motion = self.choose_first_motion(first, start_trial)
             self.trials = E.make_game_schedule(participant, [b["id"] for b in self.blocks], seed,
-                                               e.get("max_motion_in_row", 2))
+                                               self.first_motion)
         else:
+            if first:
+                sys.exit("--first needs experiment.design: game.")
             self.trials = E.make_schedule(self.block_order, [b["id"] for b in self.blocks],
                                           e["reps_per_block"], seed, e["max_same_in_row"])
         if auto and (pipeline or not self.game):
@@ -110,7 +118,6 @@ class ExperimentNode:
                 sys.exit("Trajectory file was planned with T = %.2f s, config says %.2f s. Recompute."
                          % (self.traj_meta["duration"], self.duration))
 
-        self.out_dir = os.path.join(os.path.expanduser(e["output_dir"]), participant)
         if os.path.exists(os.path.join(self.out_dir, "trials.csv")) and start_trial == 0:
             sys.exit("%s already has data. Use another participant id, or --start-trial N to resume."
                      % self.out_dir)
@@ -136,6 +143,29 @@ class ExperimentNode:
         self.bag = None
 
     # --- setup -----------------------------------------------------------
+    def choose_first_motion(self, first, start_trial):
+        """Motion of game block A: --first, else the resumed session's, else asked here."""
+        session = os.path.join(self.out_dir, "session.yaml")
+        earlier = None
+        if start_trial and os.path.exists(session):
+            with open(session) as f:
+                earlier = (yaml.safe_load(f) or {}).get("first_motion")
+        if first and earlier and first != earlier:
+            sys.exit("%s started with %s motions; resume with the same --first." % (self.participant, earlier))
+        if first or earlier:
+            return first or earlier
+        default = E.default_first_motion(self.participant)
+        while True:
+            answer = input("Which motion does %s see first (rounds 1-4)? p = predictable, l = legible "
+                           "(Enter = %s, the balanced choice; q = quit): " % (self.participant, default)).strip().lower()
+            if answer == "q":
+                sys.exit("Stopped before the session started.")
+            if not answer:
+                return default
+            for motion in E.MOTIONS:
+                if motion.startswith(answer):
+                    return motion
+
     def write_session_yaml(self, seed, traj_path):
         path = os.path.join(self.out_dir, "session.yaml")
         info = {"participant_id": self.participant, "date": datetime.datetime.now().isoformat(timespec="seconds"),
@@ -146,6 +176,7 @@ class ExperimentNode:
                 "button_to_block": self.button_to_block, "n_trials": len(self.trials), "notes": ""}
         info["design"] = "game" if self.game else "classic"
         if self.game:
+            info["first_motion"] = self.first_motion
             info["schedule"] = ["%d %s %s %s" % (t["trial_id"] + 1, t["motion"], self.blocks[t["target_id"]]["name"],
                                                  self.colors[t["target_id"]])
                                 for t in self.trials]
@@ -512,12 +543,13 @@ class ExperimentNode:
             self.prompt("Paused. Enter = continue, q = quit: ")
             self.paused = False
 
-    def wait_for_player(self):
+    def wait_for_player(self, title="Guess the robot's cube!", text=None, sound="welcome"):
         """Welcome screen until the player presses any cube key (also checks the keys work)."""
         self.waiting_start = threading.Event()
-        self.show("text", "Guess the robot's cube!", self.e.get("welcome_text", sounds.VOICE["welcome"])
-                  + "\n\nPress any cube key to start.", focus=True)
-        self.sound("welcome")
+        text = self.e.get("welcome_text", sounds.VOICE["welcome"]) if text is None else text
+        self.show("text", title, text + "\n\nPress any cube key to start.", focus=True)
+        if sound:
+            self.sound(sound)
         print("Waiting for the player to press a cube key (q = quit) ...")
         while not self.waiting_start.wait(0.2):
             if rospy.is_shutdown():
@@ -526,6 +558,16 @@ class ExperimentNode:
                 self.check_commands()
         with self.lock:
             self.waiting_start = None
+
+    def questionnaire_break(self, done, next_trial):
+        """Between game block A and B: the paper questionnaire, then the player starts block B."""
+        self.show("text", "Break", self.e.get("questionnaire_text", sounds.VOICE["questionnaire"]), hud=None)
+        self.sound("questionnaire")
+        print("\n=== Block A done (%s, %d points so far). Questionnaire on paper. ===" % (done["motion"], self.total))
+        rospy.loginfo("Questionnaire break after block A")
+        self.prompt("Questionnaire done? Enter = continue with block B (%s) (q = quit): " % next_trial["motion"])
+        rospy.loginfo("Block B starts")
+        self.wait_for_player("Second half", "Ready for the next rounds?", sound=None)
 
     def restore_total(self):
         """Points of the trials already done (resumed session)."""
@@ -557,6 +599,8 @@ class ExperimentNode:
     def run_game(self):
         print("\nParticipant %s: game, %d trials, colour rotation %d, trajectories %s"
               % (self.participant, len(self.trials), self.rotation, self.traj_meta["hash"]))
+        print("Block A (rounds 1-4): %s, block B (rounds 5-8): %s; questionnaire in between"
+              % (self.trials[0]["motion"], self.trials[-1]["motion"]))
         print("Cube colours for this participant (robot frame, place_blocks.py spots):")
         for b, c in zip(self.blocks, self.colors):
             print("  %s: %s" % (b["name"], c))
@@ -571,7 +615,8 @@ class ExperimentNode:
                     "Enter (q = quit) ")
         self.start_bag()
         if self.auto:
-            print("\nAutomatic session: after 'go' all %d rounds run by themselves. While it runs:\n"
+            print("\nAutomatic session: after 'go' all %d rounds run by themselves, with a stop for the "
+                  "questionnaire after block A. While it runs:\n"
                   "  p + Enter  pause after the current round\n"
                   "  q + Enter  stop after the current round\n"
                   "  E-STOP     the only way to stop the robot during a reach\n"
@@ -583,8 +628,12 @@ class ExperimentNode:
         self.wait_for_player()
 
         i = self.start_trial
+        block = self.trials[i]["block"] if i < len(self.trials) else None
         while i < len(self.trials):
             trial = self.trials[i]
+            if trial["block"] != block:
+                self.questionnaire_break(self.trials[i - 1], trial)
+                block = trial["block"]
             if self.auto:
                 self.check_commands()
                 print("[%d/%d] %s, target %s" % (i + 1, len(self.trials), trial["motion"],
@@ -658,6 +707,8 @@ def main():
     ap.add_argument("participant", help="e.g. P07")
     ap.add_argument("--start-trial", type=int, default=0, help="resume at this trial index")
     ap.add_argument("--config", help="same experiment YAML used by planner, optimizer and display")
+    ap.add_argument("--first", choices=list(E.MOTIONS) + [""], default="",
+                    help="game design: motion of rounds 1-4 (the other one in rounds 5-8); asked if not given")
     ap.add_argument("--auto", action="store_true",
                     help="game design: one 'go', then all trials run by themselves (study.launch)")
     ap.add_argument("--pipeline", action="store_true",
@@ -666,7 +717,8 @@ def main():
     if not sys.stdin.isatty():
         sys.exit("experiment_node needs the experimenter at an interactive terminal (use rosrun, not roslaunch).")
     try:
-        node = ExperimentNode(args.participant, args.start_trial, args.config, args.pipeline, args.auto)
+        node = ExperimentNode(args.participant, args.start_trial, args.config, args.pipeline, args.auto,
+                              args.first or None)
     except SystemExit as error:
         if args.auto:  # own terminal window (study.launch): keep the message readable
             print(error)

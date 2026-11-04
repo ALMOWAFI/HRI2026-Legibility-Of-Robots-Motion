@@ -1,9 +1,12 @@
 <launch>
   <!-- One study session (experiment.design: game, 8 rounds), everything from one command:
-         roslaunch hri_legible_motion study.launch participant:=P07
+         roslaunch hri_legible_motion study.launch participant:=P07 first:=legible
        Starts motion, display, sound and the experiment node; the experiment node opens in its
        own terminal window, where the experimenter types 'go' once. Then all rounds run by
        themselves (p + Enter = pause, q + Enter = stop, e-stop = stop the robot).
+       Rounds 1-4 use the `first` motion, rounds 5-8 the other one. After round 4 the session
+       waits for the paper questionnaire: Enter in the experimenter window, then a cube key.
+       Without first:=..., the experimenter window asks for it.
 
        Robot first (separate terminals, as before):
          ~/scripts/launch_hardware.sh
@@ -15,6 +18,7 @@
   <arg name="config" default="$(find hri_legible_motion)/config/experiment.yaml"/>
   <arg name="dry_run" default="false" doc="true: fake motion node, no robot / MoveIt needed"/>
   <arg name="sim" default="false" doc="true: demo.launch instead of the UR driver (no speed-scaling check)"/>
+  <arg name="first" default="" doc="predictable | legible: motion of rounds 1-4; empty = ask at startup"/>
   <arg name="start_trial" default="0"/>
   <arg name="terminal" default="xterm -fa Monospace -fs 13 -geometry 120x32+40+40 -T experimenter -e"
        doc="terminal for the experiment node (needs a real terminal for 'go')"/>
@@ -46,5 +50,5 @@
 
   <node pkg="hri_legible_motion" type="experiment_node.py" name="experiment_node" required="true"
         launch-prefix="$(arg terminal)"
-        args="$(arg participant) --auto --config $(arg config) --start-trial $(arg start_trial)"/>
+        args="$(arg participant) --auto --config $(arg config) --start-trial $(arg start_trial) --first=$(arg first)"/>
 </launch>

@@ -61,7 +61,9 @@ class Display:
         self.root.after(FRAME_MS, self.poll)
 
     def on_key(self, event):
-        key = event.char
+        # Some input methods (XWayland, ibus) deliver an empty char: fall back to the key name.
+        key = (event.char or (event.keysym if len(event.keysym) == 1 else "")).lower()  # Caps Lock on still counts
+        rospy.loginfo("Key %r (char %r, keysym %s)", key, event.char, event.keysym)
         if key and key in "1234567":
             self.rating_pub.publish(Int32(int(key)))
             if self.state["screen"] == "rating":
