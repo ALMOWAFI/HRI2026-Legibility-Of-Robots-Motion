@@ -31,6 +31,8 @@ Check what is still a fallback: the sound node prints `fallback for: ...` at sta
 | `high_score.wav` | New high score! | best score so far (leaderboard rank 1) |
 | `thank_you.wav` | Thank you for playing! | end of the game |
 | `pause.wav` | Short break. Please wait. | experimenter paused, or a round failed |
+| `practice_done.wav` | Practice is over. Now the real game starts, and your score starts again from zero. | after the practice rounds |
+| `questionnaire.wav` | Halftime! Please fill in the questionnaire. The game continues afterwards. | after round 4, before the second block |
 
 Keep `count_3/2/1` under 0.8 s each (one number per second) and `get_ready`, `halfway` and
 `last_round` under 2 s (they play during the 2 s round screen, `experiment.ready_time`). `welcome` can be

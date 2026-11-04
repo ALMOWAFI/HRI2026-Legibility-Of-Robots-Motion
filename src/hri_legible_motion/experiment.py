@@ -101,47 +101,45 @@ def make_schedule(block_order, targets, reps, seed, limit=2):
 WILLIAMS_4 = [[0, 1, 3, 2], [1, 2, 0, 3], [2, 3, 1, 0], [3, 0, 2, 1]]
 
 
-def max_motion_run(items):
-    return max_run([m for m, _ in items])
+def default_first_motion(participant):
+    """Suggested first block: odd participant numbers predictable, even ones legible, which
+    balances game_order() over groups of 8 participants."""
+    return MOTIONS[(participant_number(participant) - 1) % 2]
 
 
-def game_order(participant, targets, seed, max_motion_in_row=2):
-    """8 (motion, target) pairs for one participant, reproducible from (participant, seed).
+def game_order(participant, targets, seed, first):
+    """8 (motion, target) pairs for one participant, reproducible from (participant, seed, first).
 
-    - trials 1-4: every cube once, 2 predictable + 2 legible; trials 5-8: every cube once
-      with the other motion, so each half has 2 + 2 and practice effects hit both equally
-    - the same cube never twice in a row, the same motion at most `max_motion_in_row` times
-    - first-half cube order: Williams-square row; first motion alternates between
-      participants (odd numbers start predictable), so groups of 8 participants are balanced
+    - block A, trials 1-4: every cube once with motion `first`; block B, trials 5-8: every
+      cube once with the other motion (questionnaire on paper in between)
+    - block A cube order: Williams-square row, one row per pair of participants (P01/P02,
+      P03/P04, ...); with `first` alternating as default_first_motion(), groups of 8
+      participants see every cube in every position equally often with each motion
+    - block B cube order: from the seed, never starting with the last cube of block A and
+      never block A's order again
     """
     if len(targets) != 4:
         raise ValueError("The game design needs exactly 4 cubes.")
+    if first not in MOTIONS:
+        raise ValueError("first must be one of %s, not %r" % (", ".join(MOTIONS), first))
     j = (participant_number(participant) - 1) % 8
-    first = MOTIONS[j % 2]
     cubes = [targets[i] for i in WILLIAMS_4[j // 2]]
     rng = random.Random("%s/%d" % (seed, participant_number(participant)))
-    candidates = []
-    for motions in sorted(set(itertools.permutations(MOTIONS * 2))):
-        if motions[0] != first:
-            continue
-        half1 = list(zip(motions, cubes))
-        if max_motion_run(half1) > max_motion_in_row:
-            continue
-        other = {t: MOTIONS[1 - MOTIONS.index(m)] for m, t in half1}
-        for perm in itertools.permutations(cubes):
-            if perm[0] == cubes[-1]:
-                continue
-            items = half1 + [(other[t], t) for t in perm]
-            if max_motion_run(items) <= max_motion_in_row:
-                candidates.append(items)
-    return rng.choice(candidates)
+    second = MOTIONS[1 - MOTIONS.index(first)]
+    orders = [perm for perm in itertools.permutations(cubes) if perm[0] != cubes[-1] and list(perm) != cubes]
+    return [(first, t) for t in cubes] + [(second, t) for t in rng.choice(orders)]
 
 
-def make_game_schedule(participant, targets, seed, max_motion_in_row=2):
-    """Trials in the format of make_schedule(): phase 'game', block 'G'."""
-    return [{"trial_id": i, "phase": "game", "block": "G", "index_in_phase": i,
-             "motion": motion, "target_id": target}
-            for i, (motion, target) in enumerate(game_order(participant, targets, seed, max_motion_in_row))]
+def make_game_schedule(participant, targets, seed, first, training=()):
+    """Trials in the format of make_schedule(): first the `training` (motion, target) pairs
+    (phase 'training', block 'T', practice, logged separately), then phase 'game', block 'A'
+    (rounds 1-4, motion `first`) and 'B' (rounds 5-8, the other motion). trial_id counts
+    within each phase, so the game trials are 0-7 with or without practice."""
+    practice = [{"trial_id": i, "phase": "training", "block": "T", "index_in_phase": i,
+                 "motion": motion, "target_id": target} for i, (motion, target) in enumerate(training)]
+    return practice + [{"trial_id": i, "phase": "game", "block": "AB"[i // 4], "index_in_phase": i,
+                        "motion": motion, "target_id": target}
+                       for i, (motion, target) in enumerate(game_order(participant, targets, seed, first))]
 
 
 def points_left(u, points_max=100, exponent=1.0):
@@ -261,14 +259,14 @@ class TrialRecord:
 
 
 class SessionLog:
-    """<dir>/trials.csv and <dir>/choices.csv, appended and flushed after every trial,
-    so a crash loses at most the running trial."""
+    """<dir>/<prefix>trials.csv and <dir>/<prefix>choices.csv, appended and flushed after every
+    trial, so a crash loses at most the running trial. prefix 'practice_': the practice rounds."""
 
-    def __init__(self, directory):
+    def __init__(self, directory, prefix=""):
         os.makedirs(directory, exist_ok=True)
         self.dir = directory
-        self.trials_path = os.path.join(directory, "trials.csv")
-        self.choices_path = os.path.join(directory, "choices.csv")
+        self.trials_path = os.path.join(directory, prefix + "trials.csv")
+        self.choices_path = os.path.join(directory, prefix + "choices.csv")
 
     @staticmethod
     def _append(path, fields, rows):

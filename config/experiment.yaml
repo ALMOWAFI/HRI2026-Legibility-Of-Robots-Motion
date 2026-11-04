@@ -65,9 +65,9 @@ trajectories: config/trajectories.npz   # relative to the package
 # tools/precompute_trajectories.py (offline, for the study). Workspace box: safety above.
 optimizer:
   beta: 10.0            # 1/m, observer model of the Dragan score
-  length_ratio: 1.9    # legible path at most 4 % longer than the straight reach: more breaks the
+  length_ratio: 1.04    # legible path at most 4 % longer than the straight reach: more breaks the
                         # 60 deg/s joint limit for the cubes at 0.91 m (2026-10-21 layout, 5 s)
-  efficiency_weight: 0.1  # soft efficiency penalty: maximize legibility - lambda * (L / L_straight - 1);
+  efficiency_weight: 0.2  # soft efficiency penalty: maximize legibility - lambda * (L / L_straight - 1);
                         # higher = closer to the straight reach (0.2: edge cubes keep their bend)
   protect_goal_ranking: true  # do not introduce a preference for a competing goal
   n_starts: 5           # deterministic local searches; more than one avoids a bad initial bend
@@ -93,11 +93,16 @@ experiment:
   # side itself (edge cubes outward, middle cubes toward the outer neighbour, as below).
   bend_side: [1, 1, -1, -1]
   # game: 8 rounds, every cube once per motion type, played as a game with countdown, sounds,
-  #       points and keyboard (study.launch). Order: experiment.game_order() (4 + 4 halves,
-  #       Williams-square cube order, first motion alternates between participants).
+  #       points and keyboard (study.launch). Order: experiment.game_order(): block A = rounds
+  #       1-4 with one motion (study.launch first:=..., else asked at startup), questionnaire on
+  #       paper, block B = rounds 5-8 with the other motion. Williams-square cube order.
   # classic: warm-up + two motion blocks + announced block (reps_per_block, docs/experiment_plan.md).
   design: game
-  max_motion_in_row: 2         # game: same motion type at most this often in a row
+  # game: practice rounds before block A, [motion, cube]. Shown and scored like the game, then
+  # the score goes back to 0 (not on the leaderboard). Recorded apart: practice_trials.csv,
+  # practice_choices.csv, practice.bag. They replay the study's reaches, so these (motion, cube)
+  # pairs are seen again in the game. [] = no practice.
+  training: [[predictable, B2], [legible, B3], [predictable, B4], [legible, B1], [predictable, B3]]
   countdown: 3                 # game: 3-2-1 before every reach (1 s per number)
   confidence_rating: false     # game: true = "How sure were you?" 1-7 after every reach, before the result
   leaderboard: true            # game: <output_dir>/leaderboard.csv, final screen shows the rank (P## ids only)

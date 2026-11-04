@@ -8,6 +8,7 @@ Sub:  /display       (String, JSON from experiment_node)
          "points" (result, final), "hud": {"round", "rounds", "total"}, "focus": bool,
          "drain": seconds (reach: the points bar starts emptying now, over that time),
          "points_max", "exponent" (reach: bar = points_max x (1 - t/T)^exponent)}
+        hud: optional "label" (default "Round"; "Practice" in the practice rounds).
         A message with "screen" replaces the screen; one without (e.g. {"choice": 2}) updates it.
 Pub:  /rating        (std_msgs/Int32)  keys 1-7 (number row or keypad) while the window has focus
       /button_press  (std_msgs/Int32)  keys a s d f -> 0-3, only with display.keyboard_buttons
@@ -61,7 +62,9 @@ class Display:
         self.root.after(FRAME_MS, self.poll)
 
     def on_key(self, event):
-        key = event.char
+        # Some input methods (XWayland, ibus) deliver an empty char: fall back to the key name.
+        key = (event.char or (event.keysym if len(event.keysym) == 1 else "")).lower()  # Caps Lock on still counts
+        rospy.loginfo("Key %r (char %r, keysym %s)", key, event.char, event.keysym)
         if key and key in "1234567":
             self.rating_pub.publish(Int32(int(key)))
             if self.state["screen"] == "rating":
@@ -141,7 +144,7 @@ class Display:
     def draw_hud(self, w, h, hud):
         font = ("Helvetica", max(14, h // 30), "bold")
         self.canvas.create_text(w * 0.03, h * 0.04, anchor="nw", fill=DIM, font=font,
-                                text="Round %d / %d" % (hud["round"], hud["rounds"]))
+                                text="%s %d / %d" % (hud.get("label", "Round"), hud["round"], hud["rounds"]))
         self.canvas.create_text(w * 0.97, h * 0.04, anchor="ne", fill=GOLD, font=font,
                                 text="Score %d" % hud["total"])
 

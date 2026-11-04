@@ -33,6 +33,8 @@ VOICE = {
     "high_score": "New high score!",
     "thank_you": "Thank you for playing!",
     "pause": "Short break. Please wait.",
+    "practice_done": "Practice is over. Now the real game starts, and your score starts again from zero.",
+    "questionnaire":"Halftime! Please fill in the questionnaire. The game continues afterwards.",
 }
 
 # Effects: name -> description (what to record or pick from a sound library).

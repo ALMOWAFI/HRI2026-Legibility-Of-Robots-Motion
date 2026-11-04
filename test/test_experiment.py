@@ -161,37 +161,70 @@ class TestLog(unittest.TestCase):
 class TestGameSchedule(unittest.TestCase):
     PARTICIPANTS = ["P%02d" % k for k in range(1, 41)]
 
+    def order(self, p, targets=TARGETS):
+        return E.game_order(p, targets, 2026, E.default_first_motion(p))
+
     def test_every_cube_once_per_motion(self):
         for p in self.PARTICIPANTS:
-            trials = E.make_game_schedule(p, TARGETS, 2026)
-            self.assertEqual(len(trials), 8)
-            self.assertEqual(sorted((t["motion"], t["target_id"]) for t in trials),
-                             sorted((m, c) for m in E.MOTIONS for c in TARGETS))
-            self.assertEqual([t["trial_id"] for t in trials], list(range(8)))
+            for first in E.MOTIONS:
+                trials = E.make_game_schedule(p, TARGETS, 2026, first)
+                self.assertEqual(len(trials), 8)
+                self.assertEqual(sorted((t["motion"], t["target_id"]) for t in trials),
+                                 sorted((m, c) for m in E.MOTIONS for c in TARGETS))
+                self.assertEqual([t["trial_id"] for t in trials], list(range(8)))
+                self.assertEqual([t["block"] for t in trials], list("AAAABBBB"))
 
-    def test_halves_balanced(self):
+    def test_blocks_one_motion_each(self):
         for p in self.PARTICIPANTS:
-            order = E.game_order(p, TARGETS, 2026)
-            for half in (order[:4], order[4:]):
-                self.assertEqual(sorted(t for _, t in half), TARGETS)
-                self.assertEqual(collections.Counter(m for m, _ in half), {"predictable": 2, "legible": 2})
+            for first, second in (E.MOTIONS, E.MOTIONS[::-1]):
+                order = E.game_order(p, TARGETS, 2026, first)
+                self.assertEqual([m for m, _ in order], [first] * 4 + [second] * 4)
+                for half in (order[:4], order[4:]):
+                    self.assertEqual(sorted(t for _, t in half), TARGETS)
+                self.assertNotEqual([t for _, t in order[:4]], [t for _, t in order[4:]])
 
-    def test_runs(self):
+    def test_no_cube_twice_in_a_row(self):
         for p in self.PARTICIPANTS:
-            order = E.game_order(p, TARGETS, 2026)
-            self.assertEqual(E.max_run([t for _, t in order]), 1)
-            self.assertLessEqual(E.max_motion_run(order), 2)
+            for first in E.MOTIONS:
+                self.assertEqual(E.max_run([t for _, t in E.game_order(p, TARGETS, 2026, first)]), 1)
 
     def test_counterbalanced_over_8_participants(self):
-        orders = [E.game_order(p, TARGETS, 2026) for p in self.PARTICIPANTS[:8]]
+        orders = [self.order(p) for p in self.PARTICIPANTS[:8]]
         self.assertEqual(collections.Counter(o[0][0] for o in orders), {"predictable": 4, "legible": 4})
-        for position in range(4):  # Williams square: every cube in every first-half position twice
-            self.assertEqual(collections.Counter(o[position][1] for o in orders), {t: 2 for t in TARGETS})
+        for motion in E.MOTIONS:  # Williams square: each cube in each block-A position once per motion
+            for position in range(4):
+                self.assertEqual(collections.Counter(o[position][1] for o in orders if o[0][0] == motion),
+                                 {t: 1 for t in TARGETS})
 
     def test_reproducible(self):
-        self.assertEqual(E.game_order("P05", TARGETS, 2026), E.game_order("P05", TARGETS, 2026))
-        self.assertEqual(E.game_order("P05", [10, 11, 12, 13], 2026)[0][1] - 10,
-                         E.game_order("P05", TARGETS, 2026)[0][1])
+        self.assertEqual(self.order("P05"), self.order("P05"))
+        self.assertEqual(self.order("P05", [10, 11, 12, 13])[0][1] - 10, self.order("P05")[0][1])
+        # The chosen first motion changes only the motions, not the cube order.
+        self.assertEqual([t for _, t in E.game_order("P05", TARGETS, 2026, "legible")],
+                         [t for _, t in E.game_order("P05", TARGETS, 2026, "predictable")])
+
+    def test_training_first(self):
+        training = [("predictable", 1), ("legible", 2), ("predictable", 3), ("legible", 0), ("predictable", 2)]
+        trials = E.make_game_schedule("P03", TARGETS, 2026, "legible", training)
+        self.assertEqual(len(trials), 13)
+        self.assertEqual([t["block"] for t in trials], list("TTTTTAAAABBBB"))
+        self.assertEqual([t["phase"] for t in trials], ["training"] * 5 + ["game"] * 8)
+        self.assertEqual([(t["motion"], t["target_id"]) for t in trials[:5]], training)
+        self.assertEqual([t["trial_id"] for t in trials], list(range(5)) + list(range(8)))
+        # The game part is the same with or without practice.
+        self.assertEqual(trials[5:], E.make_game_schedule("P03", TARGETS, 2026, "legible"))
+
+    def test_practice_log_apart(self):
+        with tempfile.TemporaryDirectory() as d:
+            log, practice = E.SessionLog(d), E.SessionLog(d, "practice_")
+            self.assertEqual(os.path.basename(practice.trials_path), "practice_trials.csv")
+            self.assertEqual(os.path.basename(practice.choices_path), "practice_choices.csv")
+            self.assertEqual(os.path.dirname(practice.trials_path), os.path.dirname(log.trials_path))
+            self.assertNotEqual(practice.trials_path, log.trials_path)
+
+    def test_bad_first_motion(self):
+        with self.assertRaises(ValueError):
+            E.game_order("P05", TARGETS, 2026, "fast")
 
     def test_points(self):
         self.assertEqual((E.points(0.0), E.points(0.724), E.points(1.0)), (0, 72, 100))
