@@ -15,7 +15,9 @@ TRIAL_FIELDS = ["participant_id", "trial_id", "phase", "block", "index_in_phase"
                 "target_id", "target_name", "target_color", "status",
                 "t_trial_start", "t_start", "t_end", "t_done", "f",
                 "t_first_correct", "t_commit", "n_switches", "final_choice", "final_correct",
-                "confidence", "points"]
+                "confidence", "points", "choice_names", "choice_ids", "choice_times"]
+# choice_*: every selection of the trial in order, ';'-separated (first = first press, each next
+# one a switch); choice_times in s from reach onset. The same as the trial's rows in choices.csv.
 CHOICE_FIELDS = ["participant_id", "trial_id", "stamp", "t_rel", "choice_id"]
 
 
@@ -174,6 +176,11 @@ class TrialRecord:
                    t_end=None if self.t_start is None else self.t_start + duration,
                    t_done=self.t_done, confidence=self.confidence)
         row.update(self.measures(duration))
+        t0 = self.t_start if self.t_start is not None else self.t_trial_start
+        row.update(choice_names=";".join(blocks[c]["name"] if 0 <= c < len(blocks) else str(c)
+                                         for _, c in self.choices),
+                   choice_ids=";".join(str(c) for _, c in self.choices),
+                   choice_times=";".join("%.3f" % (t - t0) for t, _ in self.choices))
         return row
 
     def choice_rows(self, participant_id):

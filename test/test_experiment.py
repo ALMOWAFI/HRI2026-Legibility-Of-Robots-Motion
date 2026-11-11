@@ -106,6 +106,18 @@ class TestLog(unittest.TestCase):
             with open(log.choices_path) as f:
                 self.assertEqual(len(list(csv.DictReader(f))), 2)
 
+    def test_choice_sequence_columns(self):
+        with tempfile.TemporaryDirectory() as d:
+            log = E.SessionLog(d)
+            r = E.TrialRecord(trial(), 9.0)
+            r.t_start, r.status = 10.0, "done"
+            for t, c in [(10.5, 2), (11.25, 0), (12.0, 3)]:
+                r.add_choice(t, c)
+            row = log.write(r, "P01", 4.0, BLOCKS, COLORS)
+            self.assertEqual((row["choice_names"], row["choice_ids"], row["choice_times"]),
+                             ("B3;B1;B4", "2;0;3", "0.500;1.250;2.000"))
+            self.assertEqual(row["n_switches"], 2)
+
 
 class TestGameSchedule(unittest.TestCase):
     PARTICIPANTS = ["P%02d" % k for k in range(1, 41)]
