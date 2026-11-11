@@ -101,7 +101,7 @@ experiment:
   countdown: 3                 # 3-2-1 before every reach (1 s per number)
   confidence_rating: false     # true = "How sure were you?" 1-7 after every reach, before the result
   leaderboard: true            # <output_dir>/leaderboard.csv, final screen shows the rank (P## ids only)
-  high_score: 6954             # fixed, imaginary high score: shown in the game rounds and on the final
+  high_score: 5574             # fixed, imaginary high score: shown in the game rounds and on the final
                                # screen (instead of the rank), never updated; null = off
   # Shown before the scored game ("Practice done!" screen, or the welcome screen without
   # practice); {high_score} = the number above. "" = no challenge text.
